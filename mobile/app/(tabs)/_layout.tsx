@@ -1,0 +1,184 @@
+import { Tabs } from 'expo-router';
+import React, { useEffect } from 'react';
+import { router } from 'expo-router';
+
+import { View, ActivityIndicator } from 'react-native';
+
+import { HapticTab } from '../../components/haptic-tab';
+import ProductsTabButton from '../../src/components/ProductsTabButton';
+import { useAuth } from '../../src/contexts/AuthContext';
+import { SafeIcon } from '../../components/SafeIcon';
+import { Platform } from 'react-native';
+
+export default function TabLayout() {
+  const authContext = useAuth() as any;
+  const { user, isAuthenticated, loading, hasPermission, isAdmin } = authContext;
+
+  // Configuração específica para Produtos para evitar conflito de href/tabBarButton no Mobile
+  const produtosOptions = Platform.OS === 'web' 
+    ? {
+        // href removido para evitar conflito com tabBarButton
+        title: 'Adm Produtos',
+        headerTitle: 'Gerenciar Produtos',
+        tabBarButton: (props: any) => (
+          <ProductsTabButton 
+            focused={props.accessibilityState?.selected || false} 
+          />
+        ),
+      }
+    : {
+        href: null,
+        title: 'Adm Produtos', 
+        headerTitle: 'Gerenciar Produtos',
+      };
+
+
+
+  useEffect(() => {
+    if (!loading && !isAuthenticated) {
+      // Redireciona para a tela de login sempre que a autenticação ficar falsa
+      router.replace('/login');
+    }
+  }, [loading, isAuthenticated]);
+
+  if (loading) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator size="large" color="#2196F3" />
+      </View>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return null;
+  }
+
+  // Removido: useEffect duplicado abaixo para evitar Hook condicional
+  // useEffect(() => {
+  //   if (!loading && !isAuthenticated) {
+  //     router.replace('/login');
+  //   }
+  // }, [loading, isAuthenticated]);
+
+  return (
+    <Tabs
+      screenOptions={{
+        tabBarActiveTintColor: '#2196F3',
+        tabBarInactiveTintColor: '#666',
+        headerShown: true,
+        headerStyle: {
+          backgroundColor: '#2196F3',
+        },
+        headerTintColor: '#fff',
+        headerTitleStyle: {
+          fontWeight: 'bold',
+        },
+        tabBarButton: HapticTab,
+        tabBarStyle: {
+          backgroundColor: '#fff',
+          borderTopWidth: 1,
+          borderTopColor: '#f0f0f0',
+        },
+      }}>
+      <Tabs.Screen
+        name="index"
+        options={{
+          title: 'Início',
+          headerTitle: 'BarApp - Sistema de Vendas',
+          tabBarIcon: ({ color }) => <SafeIcon name="home" size={24} color={color} fallbackText="Início" />,
+        }}
+      />
+      <Tabs.Screen
+        name="mesas"
+        options={{
+          title: 'Mesas',
+          headerTitle: 'Gerenciar Mesas',
+          tabBarIcon: ({ color }) => <SafeIcon name="restaurant" size={24} color={color} fallbackText="Mesas" />,
+        }}
+      />
+      <Tabs.Screen
+        name="comandas"
+        options={{
+          title: 'Comandas',
+          headerTitle: 'Comandas Abertas',
+          tabBarIcon: ({ color }) => <SafeIcon name="receipt" size={24} color={color} fallbackText="Comandas" />,
+        }}
+      />
+      <Tabs.Screen
+        name="caixa"
+        options={{
+          href: Platform.OS === 'web' ? '/(tabs)/caixa' : null,
+          title: 'Caixa',
+          headerTitle: 'Caixa - Vendas Abertas',
+          tabBarIcon: () => <SafeIcon name="cash" size={24} color="#FF0000" fallbackText="R$" />,
+        }}
+      />
+
+      <Tabs.Screen
+        name="historico"
+        options={{
+          href: Platform.OS === 'web' ? '/(tabs)/historico' : null,
+          title: 'Histórico',
+          headerTitle: 'Histórico de Vendas',
+          tabBarIcon: ({ color }) => <SafeIcon name="time" size={24} color={color} fallbackText="Hist." />,
+        }}
+      />
+      
+      {/* Abas Administrativas - Visíveis apenas para usuários com permissões OU se estiver na WEB (Desktop) */}
+      {(hasPermission('produtos') || Platform.OS === 'web') && (
+        <Tabs.Screen
+          name="admin-produtos"
+          options={produtosOptions as any}
+        />
+      )}
+      
+      {(hasPermission('funcionarios') || Platform.OS === 'web') && (
+        <Tabs.Screen
+          name="admin-funcionarios"
+          options={{
+            href: null,
+            title: 'Adm Func.',
+            headerTitle: 'Gerenciar Funcionários',
+            tabBarIcon: ({ color }) => <SafeIcon name="people" size={24} color={color} fallbackText="Func." />,
+          }}
+        />
+      )}
+      
+      {(hasPermission('clientes') || Platform.OS === 'web') && (
+        <Tabs.Screen
+          name="admin-clientes"
+          options={{
+            href: null,
+            title: 'Adm Clientes',
+            headerTitle: 'Gerenciar Clientes',
+            tabBarIcon: ({ color }) => <SafeIcon name="person" size={24} color={color} fallbackText="Cli." />,
+          }}
+        />
+      )}
+      
+      {(isAdmin() || Platform.OS === 'web') && (
+        <Tabs.Screen
+          name="admin-configuracoes"
+          options={{
+            href: Platform.OS === 'web' ? '/(tabs)/admin-configuracoes' : null,
+            title: 'Adm Config',
+            headerTitle: 'Configurações do Sistema',
+            tabBarIcon: ({ color }) => <SafeIcon name="settings" size={24} color={color} fallbackText="Conf." />,
+          }}
+        />
+      )}
+
+      {(hasPermission('relatorios') || Platform.OS === 'web') && (
+        <Tabs.Screen
+          name="admin-relatorios"
+          options={{
+            href: Platform.OS === 'web' ? '/(tabs)/admin-relatorios' : null,
+            title: 'Adm Relatórios',
+            headerTitle: 'Relatórios Administrativos',
+            tabBarIcon: ({ color }) => <SafeIcon name="bar-chart" size={24} color={color} fallbackText="Rel." />,
+          }}
+        />
+      )}
+    </Tabs>
+  );
+}

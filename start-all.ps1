@@ -1,0 +1,20 @@
+Write-Host "Iniciando Sistema Completo do Bar..."
+$root = $PSScriptRoot
+function Get-LanIp {
+  $ip = $null
+  try { $ip = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -ne '127.0.0.1' -and $_.IPAddress -notmatch '^169\.254\.' } | Select-Object -ExpandProperty IPAddress -First 1) } catch {}
+  if (-not $ip -or $ip.Trim() -eq '') {
+    try { $ip = ([System.Net.Dns]::GetHostAddresses([System.Net.Dns]::GetHostName()) | Where-Object { $_.AddressFamily -eq 'InterNetwork' -and $_.IPAddressToString -ne '127.0.0.1' } | Select-Object -ExpandProperty IPAddressToString -First 1) } catch {}
+  }
+  return [string]$ip
+}
+$lanIp = Get-LanIp
+if ($lanIp -and $lanIp.Trim() -ne '') {
+  Write-Host "API (LAN): http://$lanIp:4000/api"
+  Write-Host "Expo (LAN): http://$lanIp:8082"
+} else { Write-Host "IP LAN não detectado" }
+
+Start-Process powershell -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File',(Join-Path $root 'start-api.ps1')
+Start-Sleep -Seconds 6
+Start-Process powershell -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File',(Join-Path $root 'start-mobile.ps1')
+Write-Host "Serviços iniciados. Pressione Ctrl+C para sair deste shell."

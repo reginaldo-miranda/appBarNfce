@@ -1,0 +1,1037 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, Alert, RefreshControl, Vibration, Animated, Pressable, TextInput, ScrollView, Dimensions } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
+import { apiService, authService } from '../services/api';
+import { computeDateRange, buildQueueParams } from '../utils/filters';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { STORAGE_KEYS } from '../services/storage';
+import { Ionicons } from '@expo/vector-icons';
+import { Picker } from '@react-native-picker/picker';
+import { useSetorSync } from '../hooks/useSetorSync';
+import { imprimirPedidoSetor } from '../utils/printSetor';
+
+export default function TabletCozinhaScreen(props = {}) {
+  const { setorIdOverride, setorNomeOverride, forceFilterStatus, hiddenIds } = props || {};
+  const [items, setItems] = useState([]);
+  const [rawItems, setRawItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [setorId, setSetorId] = useState(null);
+  const [setorNome, setSetorNome] = useState('Cozinha');
+  const [submittingId, setSubmittingId] = useState(null);
+  const [feedbackMsg, setFeedbackMsg] = useState({ type: null, text: '' });
+  const screenHeight = Dimensions.get('window').height;
+  const [datePreset, setDatePreset] = useState('all');
+  const [customFrom, setCustomFrom] = useState({ d: null, m: null, y: null });
+  const [customTo, setCustomTo] = useState({ d: null, m: null, y: null });
+  const [employees, setEmployees] = useState([]);
+  const [selectedEmployeeIds, setSelectedEmployeeIds] = useState([]);
+  const [employeeSearch, setEmployeeSearch] = useState('');
+  const [setores, setSetores] = useState([]);
+  const [showCustomDateModal, setShowCustomDateModal] = useState(false);
+
+  const ensureToken = useCallback(async () => {
+    try {
+      const existingToken = await AsyncStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
+      if (!existingToken) {
+        const login = await authService.login({ email: 'admin@barapp.com', senha: '123456' });
+        const token = login?.data?.token;
+        if (token) await AsyncStorage.setItem(STORAGE_KEYS.AUTH_TOKEN, token);
+      }
+    } catch {}
+  }, []);
+
+  useEffect(() => { ensureToken(); }, [ensureToken]);
+  const [fadeAnim] = useState(new Animated.Value(1));
+  const [sound, setSound] = useState();
+  const [filterStatus, setFilterStatus] = useState(forceFilterStatus || 'pendente');
+
+  // Sincronização em tempo real
+  const handleUpdate = (updateData) => {
+    console.log('Atualização recebida:', updateData);
+    // Recarregar lista quando houver atualização
+    if (setorId) {
+      buscarItensDoSetor(setorId);
+      // Notificar novo pedido
+      notificarNovoPedido();
+    }
+  };
+
+  // Função para notificar novo pedido
+  const notificarNovoPedido = async () => {
+    // Vibração
+    Vibration.vibrate([0, 200, 100, 200]);
+    
+    // Animação de fade
+    Animated.sequence([
+      Animated.timing(fadeAnim, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
+
+  const { connected } = useSetorSync(setorId, handleUpdate);
+
+  // Buscar itens do setor
+  const buscarItensDoSetor = async (idSetor, statusOverride) => {
+    if (!idSetor) return;
+    
+    try {
+      setLoading(true);
+      const token = await AsyncStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
+      const activeStatus = statusOverride || (forceFilterStatus || filterStatus);
+      const range = computeDateRange(datePreset, customFrom, customTo);
+      const dateParams = buildQueueParams(activeStatus, range, selectedEmployeeIds);
+      let response = await apiService.request({
+        method: 'GET',
+        url: `/setor-impressao-queue/${idSetor}/queue?status=${activeStatus}${dateParams}&strict=1`,
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
+      });
+
+      if (response.data?.success) {
+        let arr = response.data.data || [];
+        if (arr.length === 0) {
+          try {
+            const respCompat = await apiService.request({
+              method: 'GET',
+              url: `/setor-impressao-queue/${idSetor}/queue?status=${activeStatus}${dateParams}`,
+              headers: token ? { Authorization: `Bearer ${token}` } : {}
+            });
+            const arr2 = respCompat?.data?.data || [];
+            if (arr2.length > 0) {
+              arr = arr2;
+              setFeedbackMsg({ type: 'success', text: 'Exibindo itens sem vínculo de setor (compatibilidade). Cadastre o setor nos produtos.' });
+            } else {
+              setFeedbackMsg({ type: null, text: '' });
+            }
+          } catch {
+            setFeedbackMsg({ type: null, text: '' });
+          }
+        } else {
+          setFeedbackMsg({ type: null, text: '' });
+        }
+        setRawItems(arr);
+        let base = Array.isArray(hiddenIds) && hiddenIds.length > 0 ? arr.filter((i) => !hiddenIds.includes(Number(i.id))) : arr;
+        if (Array.isArray(selectedEmployeeIds) && selectedEmployeeIds.length > 0) {
+          const empSet = new Set(selectedEmployeeIds.map((v) => Number(v)));
+          const nameSet = new Set(selectedEmployeeIds.map((id) => {
+            const emp = employees.find((e) => Number(e.id) === Number(id));
+            return String(emp?.nome || '').trim().toLowerCase();
+          }).filter(Boolean));
+          base = base.filter((it) => {
+            const byId = empSet.has(Number(it?.preparedById)) || empSet.has(Number(it?.funcionarioId)) || empSet.has(Number(it?.employeeId));
+            const nome = String(it?.funcionario || it?.preparadoPor || it?.responsavel || it?.employeeName || '').trim().toLowerCase();
+            const byName = nome && nameSet.has(nome);
+            return byId || byName;
+          });
+        }
+        const expanded = [];
+        for (const it of base) {
+          const qty = Math.max(1, Math.floor(Number(it?.quantidade || 1)));
+          for (let k = 0; k < qty; k++) {
+            expanded.push({ ...it, quantidade: 1, displayQty: 1, realId: it.id, _key: `${it.id}-${k}` });
+          }
+        }
+        console.log('[ENTREGUES FILTRO][COZINHA][SERVER]', { status: activeStatus, range, employeeIds: selectedEmployeeIds, rawCount: arr.length, showCount: expanded.length });
+        setItems(expanded);
+      }
+    } catch (error) {
+      console.error('Erro ao buscar itens:', error);
+      Alert.alert('Erro', 'Não foi possível carregar os pedidos');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // date range util moved to utils/filters
+
+  const carregarFuncionarios = useCallback(async () => {
+    try {
+      const token = await AsyncStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
+      const resp = await apiService.request({ method: 'GET', url: '/employee/list', headers: token ? { Authorization: `Bearer ${token}` } : {} });
+      const arr = Array.isArray(resp?.data) ? resp.data : Array.isArray(resp?.data?.data) ? resp.data.data : [];
+      setEmployees(arr);
+    } catch {}
+  }, []);
+
+  const carregarSetores = useCallback(async () => {
+    try {
+      const response = await apiService.request({ method: 'GET', url: '/setor-impressao/list' });
+      const arr = Array.isArray(response?.data?.data) ? response.data.data : [];
+      setSetores(arr);
+    } catch {}
+  }, []);
+
+  // Buscar ID do setor cozinha
+  const buscarSetorCozinha = async () => {
+    try {
+      const response = await apiService.request({
+        method: 'GET',
+        url: '/setor-impressao/list'
+      });
+
+      if (response.data?.success) {
+        const setores = response.data.data;
+        const cozinha = setores.find(s => 
+          s.nome.toLowerCase().includes('cozinha') || 
+          s.nome.toLowerCase().includes('cozinha')
+        );
+        
+        if (cozinha) {
+          setSetorId(cozinha.id);
+          setSetorNome(cozinha.nome);
+          return cozinha.id;
+        } else {
+          // Se não encontrar "cozinha", procurar por nomes similares
+          const similar = setores.find(s => 
+            s.nome.toLowerCase().includes('culinária') ||
+            s.nome.toLowerCase().includes('preparo')
+          );
+          if (similar) {
+            setSetorId(similar.id);
+            setSetorNome(similar.nome);
+            return similar.id;
+          }
+        }
+      }
+      return null;
+    } catch (error) {
+      console.error('Erro ao buscar setor cozinha:', error);
+      return null;
+    }
+  };
+
+  // Marcar item como pronto
+  const marcarComoPronto = async (item) => {
+    try {
+      // Feedback visual imediato
+      Vibration.vibrate(100);
+      let token = await AsyncStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
+      if (!token) {
+        try {
+          const login = await authService.login({ email: 'admin@barapp.com', senha: '123456' });
+          token = login?.data?.token;
+          if (token) await AsyncStorage.setItem(STORAGE_KEYS.AUTH_TOKEN, token);
+        } catch {}
+      }
+      
+      const response = await apiService.request({
+        method: 'PATCH',
+        url: `/setor-impressao-queue/sale/${item.saleId}/item/${(item.realId || item.id)}/status`,
+        data: {
+          status: 'pronto'
+        },
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
+      });
+
+      if (response.data?.success) {
+        // Remover apenas o item clicado (unidade expandida)
+        const targetKey = String(item?._key || `${item.id}`);
+        setItems(prevItems => prevItems.filter(i => String(i?._key || `${i.id}`) !== targetKey));
+        
+        // Notificação de sucesso com som
+        notificarSucesso();
+        Alert.alert('Sucesso', 'Item marcado como pronto');
+        setFeedbackMsg({ type: 'success', text: 'Item marcado como pronto' });
+        buscarItensDoSetor(setorId);
+      } else {
+        const msg = response?.data?.message || `Falha ao marcar como pronto (status ${response?.status || 'N/A'})`;
+        Alert.alert('Erro', msg);
+        setFeedbackMsg({ type: 'error', text: msg });
+      }
+    } catch (error) {
+      console.error('Erro ao marcar item como pronto:', error);
+      Alert.alert('Erro', 'Não foi possível marcar o item como pronto');
+    }
+  };
+
+  // Notificar sucesso
+  const notificarSucesso = () => {
+    Vibration.vibrate(50);
+    // Aqui você pode adicionar som de sucesso se desejar
+  };
+
+  const marcarComoEntregue = async (item) => {
+    try {
+      let existingToken = await AsyncStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
+      if (!existingToken) {
+        try {
+          const login = await authService.login({ email: 'admin@barapp.com', senha: '123456' });
+          const token = login?.data?.token;
+          if (token) await AsyncStorage.setItem(STORAGE_KEYS.AUTH_TOKEN, token);
+          existingToken = token;
+        } catch {}
+      }
+      setSubmittingId(item.id);
+      Vibration.vibrate(100);
+      const response = await apiService.request({
+        method: 'PATCH',
+        url: `/setor-impressao-queue/sale/${item.saleId}/item/${(item.realId || item.id)}/status`,
+        data: { status: 'entregue' },
+        headers: existingToken ? { Authorization: `Bearer ${existingToken}` } : {}
+      });
+      if (response?.success && response.data?.success) {
+        Vibration.vibrate(50);
+        setItems(prevItems => prevItems.filter(i => i.id !== item.id));
+        Alert.alert('Sucesso', 'Item marcado como entregue');
+        setFeedbackMsg({ type: 'success', text: 'Item marcado como entregue' });
+        buscarItensDoSetor(setorId);
+      } else {
+        const msg = response?.data?.message || `Falha ao marcar como entregue (status ${response?.status || 'N/A'})`;
+        Alert.alert('Erro', msg);
+        setFeedbackMsg({ type: 'error', text: msg });
+      }
+    } catch (error) {
+      console.error('Erro ao marcar item como entregue:', error);
+      Alert.alert('Erro', `Não foi possível marcar o item como entregue`);
+    } finally {
+      setSubmittingId(null);
+    }
+  };
+
+  // Função para imprimir todos os pedidos atuais
+  const imprimirPedidos = async () => {
+    if (items.length === 0) {
+      Alert.alert('Aviso', 'Não há pedidos para imprimir');
+      return;
+    }
+
+    try {
+      const resultado = await imprimirPedidoSetor(items, setorNome);
+      if (resultado.success) {
+        Alert.alert('Sucesso', 'Pedidos preparados para impressão');
+      } else {
+        Alert.alert('Erro', resultado.message);
+      }
+    } catch (error) {
+      console.error('Erro ao imprimir:', error);
+      Alert.alert('Erro', 'Não foi possível preparar os pedidos para impressão');
+    }
+  };
+
+  // Agrupar itens por mesa
+  const agruparPorMesa = (items) => {
+    const agrupado = {};
+    items.forEach(item => {
+      if (!agrupado[item.mesa]) {
+        agrupado[item.mesa] = [];
+      }
+      agrupado[item.mesa].push(item);
+    });
+    return agrupado;
+  };
+
+  // Atualizar quando a tela entrar em foco
+  useFocusEffect(
+    useCallback(() => {
+      const carregarDados = async () => {
+        let idSetor = setorIdOverride ?? null;
+        if (idSetor) {
+          setSetorId(idSetor);
+          if (setorNomeOverride) setSetorNome(setorNomeOverride);
+        } else {
+          idSetor = await buscarSetorCozinha();
+        }
+        if (idSetor) {
+          await buscarItensDoSetor(idSetor);
+        } else {
+          Alert.alert('Aviso', 'Setor "Cozinha" não encontrado. Verifique o cadastro de setores.');
+          setLoading(false);
+        }
+      };
+      carregarDados();
+      const interval = setInterval(() => {
+        const id = setorIdOverride ?? setorId;
+        if (id) {
+          buscarItensDoSetor(id);
+        }
+      }, 30000);
+      return () => clearInterval(interval);
+    }, [setorId, setorIdOverride, setorNomeOverride, filterStatus, forceFilterStatus, hiddenIds])
+  );
+
+  useEffect(() => {
+    const id = setorIdOverride ?? setorId;
+    if (id) {
+      buscarItensDoSetor(id);
+    }
+    if ((forceFilterStatus || filterStatus) === 'entregue' || employees.length === 0) {
+      carregarFuncionarios();
+    }
+    if ((forceFilterStatus || filterStatus) === 'entregue' && setores.length === 0) {
+      carregarSetores();
+    }
+  }, [setorId, setorIdOverride, filterStatus, forceFilterStatus, hiddenIds, datePreset, customFrom, customTo, selectedEmployeeIds, carregarFuncionarios]);
+
+const mesasAgrupadas = agruparPorMesa(items);
+
+const getWaitingMinutes = (dt) => {
+  const t = new Date(dt).getTime();
+  return Math.max(0, Math.floor((Date.now() - t) / 60000));
+};
+
+const renderItem = ({ item }) => {
+  const screenWidth = Dimensions.get('window').width;
+  const isPhone = screenWidth < 768;
+  const iconSize = isPhone ? 12 : 24;
+  const waiting = getWaitingMinutes(item.horario);
+  const urgencyStyle = waiting >= 20 ? styles.urgentHigh : waiting >= 10 ? styles.urgentMedium : waiting >= 5 ? styles.urgentLow : null;
+  const timeStr = new Date(item.horario).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', hour12: false });
+  const rawMesa = String(item?.mesa || '');
+  const isComanda = /comanda/i.test(rawMesa) || String(item?.tipo || '').toLowerCase() === 'comanda';
+    const displayName = rawMesa.replace(/^\s*(comanda|mesa)\s*:?\s*/i, '').trim();
+    return (
+      <Animated.View style={[styles.itemContainer, urgencyStyle, { opacity: fadeAnim }]}> 
+        <View style={styles.itemInfo}>
+          <View style={styles.itemTopRow}>
+            <View>
+              {(() => {
+                const rawName = String(item?.produto || '');
+                const parts = rawName.split(/\s+\/\s+/);
+                
+                // Priority 1: Use name parts if it looks like a composite name
+                if (parts.length > 1) {
+                  return parts.map((part, idx) => {
+                    const cleanPart = part.trim();
+                    const finalName = cleanPart.match(/^meio/i) ? cleanPart : `meio ${cleanPart}`;
+                    return (
+                      <Text key={`part-${idx}`} style={styles.itemTitle}>
+                        {idx === 0 ? `${Number(item?.displayQty || 1)}x ` : '    '}{finalName}
+                      </Text>
+                    );
+                  });
+                }
+
+                // Priority 2: Use variacaoOpcoes structure if available
+                if (Array.isArray(item?.variacaoOpcoes) && item.variacaoOpcoes.length > 0) {
+                   const options = [...item.variacaoOpcoes];
+                   const rawNameClean = rawName.replace(/^meio\s+/i, '').trim().toLowerCase();
+                   
+                   // Check if the main product name is effectively represented in options
+                   const hasMainInOptions = options.some(op => {
+                      const opName = String(op.nome || '').replace(/^meio\s+/i, '').trim().toLowerCase();
+                      return opName === rawNameClean;
+                   });
+
+                   // If main product is NOT in options, prepend it (assumes Base + Option structure for Meio a Meio)
+                   const itemsToDisplay = hasMainInOptions 
+                      ? options.map(o => String(o.nome || '')) 
+                      : [rawName, ...options.map(o => String(o.nome || ''))];
+
+                   return itemsToDisplay.map((nameRaw, idx) => {
+                     const cleanName = String(nameRaw).trim();
+                     const finalName = cleanName.match(/^meio/i) ? cleanName : `meio ${cleanName}`;
+                     return (
+                        <Text key={`opt-${idx}`} style={styles.itemTitle}>
+                          {idx === 0 ? `${Number(item?.displayQty || 1)}x ` : '    '}{finalName}
+                        </Text>
+                     );
+                   });
+                }
+                
+                return (
+                  <Text style={styles.itemTitle}>
+                    {Number(item?.displayQty || 1)}x {rawName}
+                  </Text>
+                );
+              })()}
+            </View>
+            <View style={styles.itemMeta}>
+              <Ionicons name="time" size={16} color="#333" />
+              <Text style={styles.waitText}>{waiting} min</Text>
+            </View>
+          </View>
+          <View style={{ marginBottom: 6 }}>
+            <Text
+              style={[
+                styles.statusPill,
+                item.status === 'pendente'
+                  ? styles.statusPending
+                  : item.status === 'pronto'
+                  ? styles.statusReady
+                  : styles.statusDelivered,
+              ]}
+            >
+              {item.status === 'pendente' ? 'Em preparação' : item.status === 'pronto' ? 'Pronto' : 'Entregue'}
+            </Text>
+          </View>
+          <Text style={styles.itemDetail}>{isComanda ? 'Comanda' : 'Mesa'}: {displayName || rawMesa}</Text>
+          <Text style={styles.itemDetail}>Responsável: {item.responsavel || 'Não informado'}</Text>
+          <Text style={styles.itemDetail}>Funcionário: {item.funcionario}</Text>
+        <Text style={styles.itemDetail}>Horário: {timeStr}</Text>
+        </View>
+        {item.status === 'pendente' ? (
+          <TouchableOpacity style={[styles.checkbox, { borderColor: '#9E9E9E' }]} onPress={() => marcarComoPronto(item)} activeOpacity={0.8}>
+            <Ionicons name="square-outline" size={iconSize} color="#616161" />
+            <Text style={[styles.checkboxText, { color: '#616161' }]}>Marcar como pronto</Text>
+          </TouchableOpacity>
+        ) : item.status === 'pronto' ? (
+          <TouchableOpacity
+            style={[styles.checkbox, { borderColor: '#9E9E9E', opacity: submittingId === item.id ? 0.6 : 1 }]}
+            onPress={() => {
+              try {
+                console.log('Entregar clique', { id: item.id, saleId: item.saleId, status: item.status });
+                if (!item?.id || !item?.saleId) {
+                  Alert.alert('Erro', 'Item inválido para entrega');
+                  return;
+                }
+                marcarComoEntregue(item);
+              } catch (e) {
+                Alert.alert('Erro', 'Falha ao iniciar entrega');
+              }
+            }}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            activeOpacity={0.8}
+            disabled={submittingId === item.id}
+          >
+            <Ionicons name="square-outline" size={iconSize} color="#616161" />
+            <Text style={[styles.checkboxText, { color: '#616161' }]}>Marcar como entregue</Text>
+          </TouchableOpacity>
+        ) : (
+          <View style={[styles.checkbox, { borderColor: '#9E9E9E' }]}> 
+            <Ionicons name="checkmark-circle" size={iconSize} color="#9E9E9E" />
+            <Text style={[styles.checkboxText, { color: '#9E9E9E' }]}>Entregue</Text>
+          </View>
+        )}
+      </Animated.View>
+    );
+  };
+
+  const renderMesa = ({ item: mesa }) => {
+    const mesaItems = mesasAgrupadas[mesa];
+    return (
+      <View style={styles.mesaContainer}>
+        <View style={styles.mesaHeader}>
+          <Text style={styles.mesaTitle}>{mesa}</Text>
+          <Text style={styles.mesaItemsCount}>{mesaItems.length} item(s)</Text>
+        </View>
+        <FlatList
+          data={mesaItems}
+          renderItem={renderItem}
+          keyExtractor={(item, idx) => String(item?._key || `${item.id}-${idx}`)}
+          scrollEnabled={true}
+          nestedScrollEnabled={true}
+        />
+      </View>
+    );
+  };
+
+  if (loading) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.loadingContainer}>
+          <Ionicons name="restaurant" size={48} color="#ff6b6b" style={styles.loadingIcon} />
+          <Text style={styles.loadingText}>Carregando pedidos...</Text>
+          <Text style={styles.loadingSubtext}>Preparando cozinha</Text>
+        </View>
+      </View>
+    );
+  }
+
+  if (items.length === 0) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.emptyContainer}>
+          <Ionicons name="restaurant" size={64} color="#ccc" />
+          <Text style={styles.emptyText}>
+            {(forceFilterStatus || filterStatus) === 'entregue' ? 'Nenhum item encontrado com os filtros' : 'Nenhum pedido pendente'}
+          </Text>
+          <Text style={styles.emptySubtext}>
+            {(forceFilterStatus || filterStatus) === 'entregue' ? 'Ajuste data ou funcionários para ampliar os resultados' : 'Os pedidos aparecerão aqui quando forem realizados'}
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.container}>
+      <View style={styles.header}>
+        <View style={styles.headerCompactRow}>
+          <View style={styles.headerLeftGroup}>
+            <Ionicons name="restaurant" size={24} color="#ff6b6b" />
+            <Text style={styles.headerTitleCompact}>{setorNome}</Text>
+            <Text style={styles.headerSubtitleCompact}>{forceFilterStatus === 'pronto' ? 'Prontos' : `${items.length} ${filterStatus}`}</Text>
+          </View>
+          <View style={styles.headerRightGroup}>
+            <View style={[styles.connectionStatus, connected ? styles.connected : styles.disconnected]}>
+              <Ionicons name={connected ? 'wifi' : 'wifi-off'} size={14} color="#fff" />
+            </View>
+            <TouchableOpacity style={styles.iconButton} onPress={imprimirPedidos}>
+              <Ionicons name="print" size={18} color="#fff" />
+            </TouchableOpacity>
+          </View>
+        </View>
+        
+        {feedbackMsg.text ? (
+          <Text style={[styles.feedbackMsg, feedbackMsg.type === 'error' ? styles.feedbackError : styles.feedbackSuccess]}>
+            {feedbackMsg.text}
+          </Text>
+        ) : null}
+      {(forceFilterStatus === 'entregue' || filterStatus === 'entregue') && (
+        <View style={styles.compactFiltersArea}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalRow}>
+            {setores.map((s) => (
+              <TouchableOpacity key={s.id} onPress={() => { setSetorId(s.id); setSetorNome(s.nome); buscarItensDoSetor(s.id); }} style={[styles.filterChipSm, Number(setorId) === Number(s.id) && styles.filterChipSmActive]}>
+                <Text style={[styles.filterTextSm, Number(setorId) === Number(s.id) && styles.filterTextSmActive]}>
+                  {s.nome.toLowerCase().includes('bar') ? 'bar' : s.nome.toLowerCase().includes('cozinha') ? 'cozinha' : s.nome.toLowerCase().includes('chapa') ? 'chapa' : s.nome}
+                </Text>
+              </TouchableOpacity>
+            ))}
+            {['hoje','semana','mes','custom'].map((p) => (
+              <TouchableOpacity key={p} onPress={() => { setDatePreset(p); if (setorId) buscarItensDoSetor(setorId); }} style={[styles.filterChipSm, datePreset === p && styles.filterChipSmActive]}>
+                <Text style={[styles.filterTextSm, datePreset === p && styles.filterTextSmActive]}>
+                  {p === 'hoje' ? 'Hoje' : p === 'semana' ? 'Semana' : p === 'mes' ? 'Mês' : 'Pers.'}
+                </Text>
+              </TouchableOpacity>
+            ))}
+              {employees.map((e) => {
+                const checked = selectedEmployeeIds.includes(e.id);
+                const count = items.filter(i => i.status==='entregue' && (Number(i.preparedById) === Number(e.id) || Number(i.funcionarioId) === Number(e.id))).length;
+                return (
+                  <TouchableOpacity key={e.id} style={[styles.employeeChip, checked && styles.employeeChipActive]} onPress={() => { setSelectedEmployeeIds((prev)=> checked ? prev.filter(id=>id!==e.id) : [...prev, e.id]); if (setorId) buscarItensDoSetor(setorId); }}>
+                    <Text style={[styles.employeeChipText, checked && styles.employeeChipTextActive]}>{e.nome}</Text>
+                    <Text style={[styles.employeeChipCount, checked && styles.employeeChipTextActive]}>{count}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        )}
+        
+      </View>
+      {!forceFilterStatus && (
+      <View style={styles.filtersRow}>
+        <TouchableOpacity onPress={() => { setFilterStatus('pendente'); if (setorId) buscarItensDoSetor(setorId, 'pendente'); }} style={[styles.filterChip, filterStatus === 'pendente' && styles.filterChipActive]}>
+          <Text style={[styles.filterText, filterStatus === 'pendente' && styles.filterTextActive]}>Em preparação</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => { setFilterStatus('pronto'); if (setorId) buscarItensDoSetor(setorId, 'pronto'); }} style={[styles.filterChip, filterStatus === 'pronto' && styles.filterChipActive]}>
+          <Text style={[styles.filterText, filterStatus === 'pronto' && styles.filterTextActive]}>Prontos</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => { setFilterStatus('entregue'); if (setorId) buscarItensDoSetor(setorId, 'entregue'); }} style={[styles.filterChip, filterStatus === 'entregue' && styles.filterChipActive]}>
+          <Text style={[styles.filterText, filterStatus === 'entregue' && styles.filterTextActive]}>Entregues</Text>
+        </TouchableOpacity>
+      </View>
+      )}
+      {((forceFilterStatus || filterStatus) !== 'entregue') && (
+        <View style={styles.compactFiltersArea}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalRow}>
+            {employees.map((e) => {
+              const checked = selectedEmployeeIds.includes(e.id);
+              const count = items.filter(i => (Number(i.preparedById) === Number(e.id) || Number(i.funcionarioId) === Number(e.id))).length;
+              return (
+                <TouchableOpacity key={e.id} style={[styles.employeeChip, checked && styles.employeeChipActive]} onPress={() => { setSelectedEmployeeIds((prev)=> checked ? prev.filter(id=>id!==e.id) : [...prev, e.id]); if (setorId) buscarItensDoSetor(setorId); }}>
+                  <Text style={[styles.employeeChipText, checked && styles.employeeChipTextActive]}>{e.nome}</Text>
+                  <Text style={[styles.employeeChipCount, checked && styles.employeeChipTextActive]}>{count}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </View>
+      )}
+      
+      
+      <View style={[styles.deliveriesArea, { minHeight: screenHeight * 0.7 }] }>
+      <FlatList
+        style={styles.mainList}
+        data={[...items].sort((a, b) => new Date(a.horario).getTime() - new Date(b.horario).getTime())}
+        renderItem={renderItem}
+        keyExtractor={(item) => String(item?._key || item.id)}
+        contentContainerStyle={styles.listContainer}
+        scrollEnabled={true}
+        showsVerticalScrollIndicator
+        initialNumToRender={12}
+        windowSize={10}
+        refreshControl={
+          <RefreshControl
+            refreshing={loading}
+            onRefresh={() => buscarItensDoSetor(setorId)}
+            colors={['#ff6b6b']}
+          />
+        }
+        ListEmptyComponent={
+          <View style={styles.emptyContainer}>
+            <Ionicons name="restaurant" size={64} color="#ccc" />
+            <Text style={styles.emptyText}>Nenhum pedido pendente</Text>
+            <Text style={styles.emptySubtext}>Os pedidos aparecerão aqui quando forem realizados</Text>
+          </View>
+        }
+      />
+      </View>
+    </View>
+  );
+}
+
+function PickerSmall({ value, onChange, range }) {
+  return (
+    <View style={{ borderWidth: 1, borderColor: '#ddd', borderRadius: 8, marginRight: 4, backgroundColor: '#fff' }}>
+      <Picker selectedValue={value} onValueChange={onChange} style={{ width: 90, height: 40 }}>
+        <Picker.Item label="--" value={null} />
+        {range.map((v) => (
+          <Picker.Item key={String(v)} label={String(v)} value={v} />
+        ))}
+      </Picker>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#fafafa',
+  },
+  header: {
+    backgroundColor: '#fff',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  headerTopRow: {
+    display: 'none'
+  },
+  headerCompactRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  headerLeftGroup: { flexDirection: 'row', alignItems: 'center' },
+  headerRightGroup: { flexDirection: 'row', alignItems: 'center' },
+  headerTitleCompact: { fontSize: 18, fontWeight: '700', color: '#ff6b6b', marginLeft: 6 },
+  headerSubtitleCompact: { fontSize: 12, color: '#666', marginLeft: 8 },
+  iconButton: { marginLeft: 8, backgroundColor: '#ff6b6b', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16 },
+  compactFiltersArea: { marginTop: 6 },
+  horizontalRow: { alignItems: 'center' },
+  filterChipSm: { borderWidth: 1, borderColor: '#ddd', borderRadius: 16, paddingHorizontal: 10, paddingVertical: 4, marginRight: 6, backgroundColor: '#fff' },
+  filterChipSmActive: { borderColor: '#ff6b6b', backgroundColor: '#ffe7e7' },
+  filterTextSm: { fontSize: 12, color: '#666', fontWeight: '600' },
+  filterTextSmActive: { color: '#ff6b6b', fontWeight: '700' },
+  employeeChip: { borderWidth: 1, borderColor: '#ddd', borderRadius: 16, paddingHorizontal: 10, paddingVertical: 4, marginRight: 6, backgroundColor: '#fff', flexDirection: 'row', alignItems: 'center' },
+  employeeChipActive: { borderColor: '#ff6b6b', backgroundColor: '#ffe7e7' },
+  employeeChipText: { fontSize: 12, color: '#333', fontWeight: '600' },
+  employeeChipTextActive: { color: '#ff6b6b' },
+  employeeChipCount: { fontSize: 12, color: '#666', marginLeft: 6 },
+  deliveriesArea: { flex: 1 },
+  mainList: { flex: 1 },
+  printButton: {
+    backgroundColor: '#2196F3',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 15,
+    paddingVertical: 10,
+    borderRadius: 25,
+    shadowColor: '#2196F3',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 3.84,
+    elevation: 3,
+  },
+  printButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    marginLeft: 5,
+    fontSize: 14,
+  },
+  headerTitle: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#ff6b6b',
+    marginTop: 10,
+    textShadowColor: 'rgba(0, 0, 0, 0.1)',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 2,
+  },
+  headerSubtitle: {
+    fontSize: 16,
+    color: '#666',
+    marginTop: 5,
+    fontWeight: '500',
+  },
+  feedbackMsg: {
+    marginTop: 8,
+    fontSize: 18,
+    fontWeight: '600',
+    textAlign: 'center'
+  },
+  feedbackError: {
+    color: '#d32f2f'
+  },
+  feedbackSuccess: {
+    color: '#2e7d32'
+  },
+  connectionStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  connected: {
+    backgroundColor: '#4CAF50',
+  },
+  disconnected: {
+    backgroundColor: '#f44336',
+  },
+  connectionText: {
+    color: '#fff',
+    fontSize: 12,
+    marginLeft: 5,
+    fontWeight: '600',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+  },
+  loadingIcon: {
+    marginBottom: 20,
+  },
+  loadingText: {
+    fontSize: 20,
+    color: '#ff6b6b',
+    fontWeight: 'bold',
+    marginBottom: 10,
+  },
+  loadingSubtext: {
+    fontSize: 16,
+    color: '#666',
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 40,
+    backgroundColor: '#fff',
+  },
+  emptyText: {
+    fontSize: 22,
+    color: '#666',
+    marginTop: 20,
+    textAlign: 'center',
+    fontWeight: 'bold',
+  },
+  emptySubtext: {
+    fontSize: 16,
+    color: '#999',
+    marginTop: 10,
+    textAlign: 'center',
+  },
+  listContainer: {
+    padding: 15,
+  },
+  mesaContainer: {
+    backgroundColor: '#fff',
+    borderRadius: 15,
+    marginBottom: 15,
+    padding: 15,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 8,
+    borderWidth: 1,
+    borderColor: '#f0f0f0',
+  },
+  mesaHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 15,
+    paddingBottom: 10,
+    borderBottomWidth: 2,
+    borderBottomColor: '#ff6b6b',
+  },
+  mesaTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#ff6b6b',
+  },
+  mesaItemsCount: {
+    fontSize: 14,
+    color: '#fff',
+    backgroundColor: '#ff6b6b',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    fontWeight: 'bold',
+  },
+  itemContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f5f5f5',
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    marginBottom: 5,
+  },
+  itemInfo: {
+    flex: 1,
+    marginRight: 15,
+  },
+  itemTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  itemTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 5,
+  },
+  itemMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  waitText: {
+    marginLeft: 6,
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#333',
+  },
+  itemDetail: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 3,
+    fontWeight: '500',
+  },
+  readyButton: {
+    backgroundColor: '#4CAF50',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 25,
+    minWidth: 90,
+    justifyContent: 'center',
+    shadowColor: '#4CAF50',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  readyButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    marginLeft: 5,
+    fontSize: 16,
+  },
+  filtersRow: {
+    flexDirection: 'row',
+    marginTop: 12,
+  },
+  advancedFilters: {
+    marginHorizontal: 15,
+    marginTop: 10,
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#eee'
+  },
+  filtersLabel: { fontSize: 16, fontWeight: '700', color: '#333' },
+  filterHint: { fontSize: 13, color: '#666', marginBottom: 6 },
+  dateBox: { flex: 1, marginHorizontal: 4 },
+  dateLabel: { fontSize: 12, color: '#666', marginBottom: 4 },
+  employeeBox: { marginTop: 6 },
+  searchLabel: { fontSize: 12, color: '#666' },
+  searchInput: { borderWidth: 1, borderColor: '#ddd', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6, marginVertical: 6, backgroundColor: '#f9f9f9' },
+  employeeItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 6 },
+  employeeName: { marginLeft: 8, flex: 1, color: '#333' },
+  employeeCount: { fontSize: 12, color: '#666' },
+  filterChip: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    marginRight: 8,
+    backgroundColor: '#fff',
+  },
+  filterChipActive: {
+    borderColor: '#ff6b6b',
+    backgroundColor: '#ffe7e7',
+  },
+  filterText: {
+    color: '#666',
+    fontWeight: '600',
+  },
+  filterTextActive: {
+    color: '#ff6b6b',
+    fontWeight: '700',
+  },
+  checkbox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: Dimensions.get('window').width < 768 ? 6 : 12,
+    paddingVertical: Dimensions.get('window').width < 768 ? 5 : 10,
+    borderRadius: Dimensions.get('window').width < 768 ? 4 : 8,
+    borderWidth: 1,
+    borderColor: '#4CAF50',
+    minWidth: Dimensions.get('window').width < 768 ? 50 : 100,
+    justifyContent: 'center',
+  },
+  checkboxText: {
+    color: '#4CAF50',
+    fontWeight: 'bold',
+    marginLeft: 6,
+    fontSize: Dimensions.get('window').width < 768 ? 8 : 16,
+  },
+  statusPill: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    fontSize: 12,
+    fontWeight: '700',
+    overflow: 'hidden',
+  },
+  statusPending: {
+    backgroundColor: '#ffe7e7',
+    color: '#ff6b6b',
+  },
+  statusReady: {
+    backgroundColor: '#e7f5e7',
+    color: '#4CAF50',
+  },
+  statusDelivered: {
+    backgroundColor: '#e0e0e0',
+    color: '#616161',
+  },
+  urgentLow: {
+    backgroundColor: '#fff8e1',
+    borderColor: '#ffe082',
+    borderWidth: 1,
+  },
+  urgentMedium: {
+    backgroundColor: '#ffecb3',
+    borderColor: '#ffd54f',
+    borderWidth: 1,
+  },
+  urgentHigh: {
+    backgroundColor: '#ffebee',
+    borderColor: '#ef5350',
+    borderWidth: 1,
+  },
+});
