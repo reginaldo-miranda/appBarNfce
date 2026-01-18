@@ -8,6 +8,9 @@ export interface NfceConfig {
     serie?: string;
     numeroInicial?: string;
     xmlFolder?: string;
+    chavePix?: string; // Chave PIX
+    pixName?: string;  // Read-only (fetched from Razao Social)
+    pixCity?: string;  // Read-only (fetched from Cidade)
 }
 
 import { Platform } from 'react-native';
@@ -34,6 +37,7 @@ export const NfceService = {
         if (config.serie) formData.append('serie', config.serie);
         if (config.numeroInicial) formData.append('numeroInicial', config.numeroInicial);
         if (config.xmlFolder) formData.append('xmlFolder', config.xmlFolder);
+        if (config.chavePix) formData.append('chavePix', config.chavePix);
 
         if (certificadoFile) {
             console.log("updateConfig: Preparando upload.", Platform.OS, certificadoFile);
@@ -99,7 +103,11 @@ export const NfceService = {
                 numeroInicial: company.numeroInicialNfce ? String(company.numeroInicialNfce) : '',
                 certificadoSenha: company.certificadoSenha || '',
                 certificadoPath: company.certificadoPath || null,
-                xmlFolder: company.xmlFolder || ''
+                certificadoPath: company.certificadoPath || null,
+                xmlFolder: company.xmlFolder || '',
+                chavePix: company.chavePix || '',
+                pixName: company.nomeFantasia || company.razaoSocial || '',
+                pixCity: company.cidade || ''
             };
         } catch (error) {
             console.error("Erro ao buscar config NFC-e:", error);

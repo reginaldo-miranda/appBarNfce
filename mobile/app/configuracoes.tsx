@@ -58,6 +58,7 @@ export default function ConfiguracoesScreen() {
   const [showCertPassword, setShowCertPassword] = useState(false);
   const [savedCertPath, setSavedCertPath] = useState<string | null>(null);
   const [xmlFolder, setXmlFolder] = useState('');
+  const [chavePix, setChavePix] = useState(''); // NEW state
   const [folderModalVisible, setFolderModalVisible] = useState(false);
   const [serverPath, setServerPath] = useState(''); // Current path being browsed
   const [dirList, setDirList] = useState<any[]>([]);
@@ -98,6 +99,7 @@ export default function ConfiguracoesScreen() {
                  if (config.certificadoSenha) setCertPassword(config.certificadoSenha);
                  setSavedCertPath(config.certificadoPath || null);
                  if (config.xmlFolder) setXmlFolder(config.xmlFolder);
+                 if (config.chavePix) setChavePix(config.chavePix); // Load saved PIX Key
              }
          } catch (e) {
              console.log("Ainda não conectou ou erro ao buscar config fiscal");
@@ -399,7 +401,8 @@ const getEnvApiUrl = (): string | undefined => {
         ambiente: isProd ? 'producao' : 'homologacao',
         serie,
         numeroInicial,
-        xmlFolder
+        xmlFolder,
+        chavePix // Include in update
       };
       await NfceService.updateConfig(config, selectedCert);
       Alert.alert('Fiscal', 'Configurações fiscais salvas com sucesso.');
@@ -655,6 +658,22 @@ const getEnvApiUrl = (): string | undefined => {
            />
          </View>
 
+
+
+
+         <View style={styles.formGroup}>
+           <Text style={styles.label}>Chave PIX (Para QR Code)</Text>
+           <TextInput
+             placeholder="E-mail, CPF, Telefone ou Aleatória"
+             style={styles.input}
+             value={chavePix}
+             onChangeText={setChavePix}
+             autoCapitalize="none"
+           />
+           <Text style={{fontSize:10, color:'#666', marginTop:4}}>
+              O Nome e Cidade serão pegos do cadastro da empresa automaticamente.
+           </Text>
+         </View>
 
          <View style={styles.formGroup}>
            <Text style={styles.label}>Pasta para Salvar XMLs (No Servidor)</Text>

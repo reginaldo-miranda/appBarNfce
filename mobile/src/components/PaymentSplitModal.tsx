@@ -19,6 +19,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Sale, CartItem, PaymentMethod } from '../types/index';
 import { caixaService, saleService } from '../services/api';
 import { events } from '../utils/eventBus';
+import PixModal from './PixModal';
 
 interface PaymentSplitModalProps {
   visible: boolean;
@@ -51,6 +52,8 @@ export default function PaymentSplitModal({
   const [selectedItems, setSelectedItems] = useState<Map<string, number>>(new Map());
   const [paymentMethod, setPaymentMethod] = useState<string>('dinheiro');
   const [emitirNfce, setEmitirNfce] = useState(true);
+  const [pixModalVisible, setPixModalVisible] = useState(false);
+  const [pixAmount, setPixAmount] = useState(0);
 
 
   // Efeito para fechar o modal se a venda for finalizada remotamente
@@ -302,24 +305,8 @@ export default function PaymentSplitModal({
     setSelectedItems(newMap);
   };
 
-  const handleConfirm = async () => {
-    if (!sale) return;
-    
-    // Se já está tudo pago, o botão serve para fechar/finalizar
-    const isEverythingPaid = totalRemainingGlobal <= 0.05;
-
-    if (totalSelected <= 0.01 && !isEverythingPaid) {
-      Alert.alert('Atenção', 'Selecione e informe valores para os itens que deseja pagar.');
-      return;
-    }
-
-    // Se tudo pago e nada selecionado, apenas confirma o sucesso para fechar
-    if (isEverythingPaid && totalSelected <= 0.01) {
-        onPaymentSuccess(true, emitirNfce);
-        return;
-    }
-
-
+  // Função central desvinculada do botão para permitir reuso (ex: pós-PIX)
+  const submitPayment = async () => {
     try {
       setLoading(true);
 
@@ -347,8 +334,6 @@ export default function PaymentSplitModal({
       });
 
       // Verificar se o pagamento quita a dívida total (com tolerância)
-      // totalRemainingGlobal já desconta o que foi pago ANTES desta transação.
-      // Então se o selecionado agora bate com o restante, QUITOU.
       const isFullPayment = (totalRemainingGlobal - totalSelected) <= 0.05;
 
       console.log('✅ Pagamento Confirmado. Full?', isFullPayment);
@@ -359,7 +344,6 @@ export default function PaymentSplitModal({
       // Notificar sucesso (callback crítico para fechar modais)
       onPaymentSuccess(isFullPayment, emitirNfce);
 
-
       // Feedback visual
       if (!isFullPayment) {
           if (Platform.OS === 'web') {
@@ -367,9 +351,6 @@ export default function PaymentSplitModal({
           } else {
             Alert.alert('Sucesso', 'Pagamento registrado!');
           }
-      } else {
-          // Se for pagamento total, o pai (SaleScreen) vai lidar com finalização ou NFC-e.
-          // Não exibimos alert aqui para não bloquear o fluxo.
       }
 
     } catch (error: any) {
@@ -378,6 +359,33 @@ export default function PaymentSplitModal({
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleConfirm = async () => {
+    if (!sale) return;
+    
+    // Se já está tudo pago, o botão serve para fechar/finalizar
+    const isEverythingPaid = totalRemainingGlobal <= 0.05;
+
+    if (totalSelected <= 0.01 && !isEverythingPaid) {
+      Alert.alert('Atenção', 'Selecione e informe valores para os itens que deseja pagar.');
+      return;
+    }
+
+    // Se tudo pago e nada selecionado, apenas confirma o sucesso para fechar
+    if (isEverythingPaid && totalSelected <= 0.01) {
+        onPaymentSuccess(true, emitirNfce);
+        return;
+    }
+
+    // Intercept PIX payment
+    if (paymentMethod === 'pix' && totalSelected > 0.05) {
+        setPixAmount(totalSelected);
+        setPixModalVisible(true);
+        return; 
+    }
+
+    await submitPayment();
   };
 
   return (
@@ -587,6 +595,18 @@ export default function PaymentSplitModal({
           </View>
         </View>
       </View>
+      <PixModal 
+          visible={pixModalVisible}
+          amount={pixAmount}
+          transactionId={sale && ((sale as any).id || sale._id) ? `PEDIDO-${(sale as any).id || sale._id}` : undefined}
+          onClose={() => setPixModalVisible(false)}
+          onConfirm={() => {
+              setPixModalVisible(false);
+              // Proceder com a confirmação normal
+              // O pagamento já foi feito "visualmente" no modal (QR Code), agora registramos no sistema.
+              submitPayment();
+          }}
+      />
     </Modal>
   );
 }

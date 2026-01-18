@@ -184,7 +184,7 @@ router.post("/nfce-config", upload.single('certificado'), async (req, res) => {
   } : "Nenhum arquivo recebido");
 
   try {
-    const { csc, cscId, certificadoSenha, ambiente, xmlFolder } = req.body;
+    const { csc, cscId, certificadoSenha, ambiente, xmlFolder, chavePix } = req.body;
     let certificadoPath = null;
 
     if (req.file) {
@@ -202,6 +202,8 @@ router.post("/nfce-config", upload.single('certificado'), async (req, res) => {
         cscId,
         ambienteFiscal: ambiente === 'producao' ? 'producao' : 'homologacao',
       };
+
+      if (chavePix !== undefined) updateData.chavePix = chavePix; // Save PIX Key
       
       if (certificadoSenha) {
           updateData.certificadoSenha = certificadoSenha;
