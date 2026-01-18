@@ -12,9 +12,11 @@ interface SaleItemsModalProps {
   onIncrementItem: (item: CartItem) => void;
   onDecrementItem: (item: CartItem) => void;
   onRemoveItem: (item: CartItem) => void;
+  onFinalize?: () => void;
 }
 
-const SaleItemsModal: React.FC<SaleItemsModalProps> = ({ visible, items, total, onClose, onAddItems, onIncrementItem, onDecrementItem, onRemoveItem }) => {
+const SaleItemsModal: React.FC<SaleItemsModalProps> = ({ visible, items, total, onClose, onAddItems, onIncrementItem, onDecrementItem, onRemoveItem, onFinalize }) => {
+  // ... (renderItem remains same)
   const renderItem = ({ item }: { item: CartItem }) => (
     <View style={styles.itemRow}>
       <View style={styles.itemLeft}>
@@ -118,8 +120,16 @@ const SaleItemsModal: React.FC<SaleItemsModalProps> = ({ visible, items, total, 
         <View style={styles.footer}>
           <TouchableOpacity style={[styles.footerButton, styles.addButton]} onPress={onAddItems}>
             <Ionicons name="add" size={18} color="#fff" />
-            <Text style={styles.footerButtonText}>Adicionar itens</Text>
+            <Text style={styles.footerButtonText}>Adicionar</Text>
           </TouchableOpacity>
+
+          {onFinalize && items.length > 0 && (
+            <TouchableOpacity style={[styles.footerButton, styles.finalizeButton]} onPress={onFinalize}>
+              <Ionicons name="checkmark-circle" size={18} color="#fff" />
+              <Text style={styles.footerButtonText}>Continuar</Text>
+            </TouchableOpacity>
+          )}
+
           <TouchableOpacity style={[styles.footerButton, styles.closeButton]} onPress={onClose}>
             <Ionicons name="close" size={18} color="#333" />
             <Text style={styles.footerButtonTextClose}>Fechar</Text>
@@ -265,6 +275,10 @@ const styles = StyleSheet.create({
   closeButton: {
     backgroundColor: '#eee',
     marginLeft: 8,
+  },
+  finalizeButton: {
+    backgroundColor: '#FF9800',
+    marginHorizontal: 8,
   },
   footerButtonText: {
     color: '#fff',

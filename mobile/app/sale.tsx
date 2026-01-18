@@ -1366,6 +1366,10 @@ export default function SaleScreen() {
             }
           }}
           onRemoveItem={removeFromCart}
+          onFinalize={() => {
+            setItemsModalVisible(false);
+            setTimeout(() => setModalVisible(true), 100);
+          }}
         />
       )}
 
