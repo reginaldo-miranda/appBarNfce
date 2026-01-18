@@ -7,6 +7,7 @@ export interface NfceConfig {
     ambiente: 'homologacao' | 'producao';
     serie?: string;
     numeroInicial?: string;
+    xmlFolder?: string;
 }
 
 import { Platform } from 'react-native';
@@ -32,6 +33,7 @@ export const NfceService = {
 
         if (config.serie) formData.append('serie', config.serie);
         if (config.numeroInicial) formData.append('numeroInicial', config.numeroInicial);
+        if (config.xmlFolder) formData.append('xmlFolder', config.xmlFolder);
 
         if (certificadoFile) {
             console.log("updateConfig: Preparando upload.", Platform.OS, certificadoFile);
@@ -96,7 +98,8 @@ export const NfceService = {
                 serie: company.serieNfce ? String(company.serieNfce) : '1',
                 numeroInicial: company.numeroInicialNfce ? String(company.numeroInicialNfce) : '',
                 certificadoSenha: company.certificadoSenha || '',
-                certificadoPath: company.certificadoPath || null
+                certificadoPath: company.certificadoPath || null,
+                xmlFolder: company.xmlFolder || ''
             };
         } catch (error) {
             console.error("Erro ao buscar config NFC-e:", error);

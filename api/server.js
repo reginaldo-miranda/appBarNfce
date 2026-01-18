@@ -59,6 +59,7 @@ import setoresRoutes from "./routes/setores.js";
 import printerRoutes from "./routes/printer.js";
 import variationTypeRoutes from "./routes/variationType.js";
 import nfceRoutes from "./routes/nfce.js";
+import systemRoutes from "./routes/system.js";
 
 // dotenv configured at top
 
@@ -266,6 +267,7 @@ app.use("/api/setor-impressao-queue", authenticate, setorImpressaoQueueRoutes);
 app.use("/api/setores", authenticate, setoresRoutes);
 app.use("/api/printer", authenticate, printerRoutes);
 app.use("/api/nfce", nfceRoutes);
+app.use("/api/system", systemRoutes); // Public for setup
 
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, '0.0.0.0', () => console.log(`✅ API rodando em: http://0.0.0.0:${PORT}`));

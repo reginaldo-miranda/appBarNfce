@@ -184,7 +184,7 @@ router.post("/nfce-config", upload.single('certificado'), async (req, res) => {
   } : "Nenhum arquivo recebido");
 
   try {
-    const { csc, cscId, certificadoSenha, ambiente } = req.body;
+    const { csc, cscId, certificadoSenha, ambiente, xmlFolder } = req.body;
     let certificadoPath = null;
 
     if (req.file) {
@@ -213,6 +213,7 @@ router.post("/nfce-config", upload.single('certificado'), async (req, res) => {
       // Novos campos
       if (req.body.serie) updateData.serieNfce = Number(req.body.serie);
       if (req.body.numeroInicial) updateData.numeroInicialNfce = Number(req.body.numeroInicial);
+      if (xmlFolder !== undefined) updateData.xmlFolder = xmlFolder;
 
       const updated = await prisma.company.update({
         where: { id: existing.id },
@@ -235,6 +236,7 @@ router.post("/nfce-config", upload.single('certificado'), async (req, res) => {
            csc,
            cscId,
            ambienteFiscal: ambiente === 'producao' ? 'producao' : 'homologacao',
+           xmlFolder,
         };
 
         if (certificadoSenha) newCompanyData.certificadoSenha = certificadoSenha;

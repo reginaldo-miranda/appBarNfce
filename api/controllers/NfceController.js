@@ -50,20 +50,45 @@ export const emitirNfce = async (req, res) => {
         const qrCodeResult = await NfceService.getQrCode(sefazResult.chave, company, sale);
 
         // 4.1 Salvar XML em arquivo físico
-        const xmlDir = path.join(__dirname, '../../xml_nfce');
+        let xmlDir;
+        let finalXmlPath;
+
+        if (company.xmlFolder && company.xmlFolder.trim() !== '') {
+            // Estrutura exigida: Base/jan2026/chave.xml
+            const now = new Date();
+            const months = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+            const subfolder = `${months[now.getMonth()]}${now.getFullYear()}`;
+            
+            xmlDir = path.join(company.xmlFolder, subfolder);
+            
+            // Garantir que diretório existe
+            if (!fs.existsSync(xmlDir)) {
+                try {
+                    fs.mkdirSync(xmlDir, { recursive: true });
+                } catch (e) {
+                    console.error(`[ERROR] Falha ao criar diretório configurado ${xmlDir}:`, e);
+                    // Fallback para diretório padrão se falhar (ex: permissão)
+                    xmlDir = path.join(__dirname, '../../xml_nfce');
+                }
+            }
+        } else {
+            // Diretório padrão (sem subpastas por mês, mantendo compatibilidade)
+            xmlDir = path.join(__dirname, '../../xml_nfce');
+        }
+
         if (!fs.existsSync(xmlDir)) {
             fs.mkdirSync(xmlDir, { recursive: true });
         }
         
         const xmlFilename = `${sefazResult.chave}.xml`;
-        const xmlPath = path.join(xmlDir, xmlFilename);
+        finalXmlPath = path.join(xmlDir, xmlFilename);
         
-        console.log(`[DEBUG] Tentando salvar XML em: ${xmlPath}`);
+        console.log(`[DEBUG] Tentando salvar XML em: ${finalXmlPath}`);
         console.log(`[DEBUG] Tamanho do XML assinado: ${signedXml ? signedXml.length : 0} bytes`);
 
         try {
-            fs.writeFileSync(xmlPath, signedXml);
-            console.log(`[SUCCESS] XML salvo em: ${xmlPath}`);
+            fs.writeFileSync(finalXmlPath, signedXml);
+            console.log(`[SUCCESS] XML salvo em: ${finalXmlPath}`);
         } catch (err) {
             console.error('[ERROR] Erro ao salvar arquivo XML:', err);
         }
@@ -119,7 +144,7 @@ export const emitirNfce = async (req, res) => {
             // URL para o botão de PDF
             pdfUrl: `${req.protocol}://${req.get('host')}/api/nfce/${sale.id}/pdf`,
             urlConsulta: savedNfce.urlConsulta,
-            xmlDebugPath: xmlPath // Debug path info
+            xmlDebugPath: finalXmlPath // Debug path info
         };
 
         return res.json(fullResponse);

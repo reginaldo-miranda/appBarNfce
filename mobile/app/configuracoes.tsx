@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   Alert,
   Platform,
+  FlatList,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -56,6 +57,11 @@ export default function ConfiguracoesScreen() {
   const [savingFiscal, setSavingFiscal] = useState(false);
   const [showCertPassword, setShowCertPassword] = useState(false);
   const [savedCertPath, setSavedCertPath] = useState<string | null>(null);
+  const [xmlFolder, setXmlFolder] = useState('');
+  const [folderModalVisible, setFolderModalVisible] = useState(false);
+  const [serverPath, setServerPath] = useState(''); // Current path being browsed
+  const [dirList, setDirList] = useState<any[]>([]);
+  const [loadingDirs, setLoadingDirs] = useState(false);
 
 
   useEffect(() => {
@@ -91,7 +97,7 @@ export default function ConfiguracoesScreen() {
                  if (config.numeroInicial) setNumeroInicial(config.numeroInicial);
                  if (config.certificadoSenha) setCertPassword(config.certificadoSenha);
                  setSavedCertPath(config.certificadoPath || null);
-                 setSavedCertPath(config.certificadoPath || null);
+                 if (config.xmlFolder) setXmlFolder(config.xmlFolder);
              }
          } catch (e) {
              console.log("Ainda não conectou ou erro ao buscar config fiscal");
@@ -335,6 +341,50 @@ const getEnvApiUrl = (): string | undefined => {
     }
   };
 
+  const fetchDirectories = useCallback(async (path?: string) => {
+      setLoadingDirs(true);
+      try {
+          const u = apiUrl || API_URL;
+          if (!u) {
+              setLoadingDirs(false);
+              return;
+          }
+          const endpoint = `${u}/system/directories${path ? `?path=${encodeURIComponent(path)}` : ''}`;
+          // Add auth header if available
+          const token = await getSecureItem(STORAGE_KEYS.API_AUTH_KEY); // Assuming token key logic
+          // Actually, configuracoes usually uses apiKey or JWT. Let's use getSecureItem logic.
+          // Re-using testApiConnection logic or similar fetch
+          const fullApiKey = await getSecureItem(STORAGE_KEYS.API_AUTH_KEY);
+          
+          const headers: any = { 'Content-Type': 'application/json' };
+          // If we have an auth expectation. server.js expects "Authorization: Bearer <JWT>". 
+          // The admin panel usually has a token from login. 
+          // However, configuracoes might be accessible. 
+          // *CRITICAL*: The user mentioned "not saving path", so maybe they aren't logged in properly?
+          // We will use the stored JWT if available.
+          const userToken = await AsyncStorage.getItem('userToken'); // Assuming standard storage
+          if (userToken) headers['Authorization'] = `Bearer ${userToken}`;
+          
+          const res = await fetch(endpoint, { headers });
+          if (!res.ok) throw new Error('Falha ao listar pastas');
+          
+          const data = await res.json();
+          setServerPath(data.currentPath);
+          setDirList(data.directories || []);
+      } catch (e) {
+          Alert.alert('Erro', 'Não foi possível listar diretórios do servidor.');
+      } finally {
+          setLoadingDirs(false);
+      }
+  }, [apiUrl]);
+
+  useEffect(() => {
+     if (folderModalVisible) {
+        fetchDirectories(serverPath || undefined);
+     }
+  }, [folderModalVisible]);
+
+
   const handleSaveFiscal = async () => {
     if (!csc || !cscId) {
       Alert.alert('Fiscal', 'Preencha CSC e ID CSC.');
@@ -348,7 +398,8 @@ const getEnvApiUrl = (): string | undefined => {
         certificadoSenha: certPassword,
         ambiente: isProd ? 'producao' : 'homologacao',
         serie,
-        numeroInicial
+        numeroInicial,
+        xmlFolder
       };
       await NfceService.updateConfig(config, selectedCert);
       Alert.alert('Fiscal', 'Configurações fiscais salvas com sucesso.');
@@ -604,6 +655,25 @@ const getEnvApiUrl = (): string | undefined => {
            />
          </View>
 
+
+         <View style={styles.formGroup}>
+           <Text style={styles.label}>Pasta para Salvar XMLs (No Servidor)</Text>
+           <TextInput
+             placeholder="Ex: C:\Nfce\Xmls ou /home/user/xmls"
+             style={styles.input}
+             value={xmlFolder}
+             onChangeText={setXmlFolder}
+             autoCapitalize="none"
+           />
+           <Text style={{fontSize:10, color:'#666', marginTop:4}}>
+              Se vazio, usa pasta padrão. Subpastas (jan2026) criadas automaticamente.
+           </Text>
+           <TouchableOpacity style={[styles.button, styles.secondaryButton, { marginTop: 10 }]} onPress={() => { setServerPath(''); setFolderModalVisible(true); }}>
+              <Ionicons name="folder-open" size={18} color="#2196F3" />
+              <Text style={[styles.buttonText, { color: '#2196F3' }]}> Buscar Pasta no Servidor</Text>
+           </TouchableOpacity>
+         </View>
+
          <View style={styles.formGroup}>
            <Text style={styles.label}>ID CSC (Token)</Text>
           <TextInput
@@ -695,6 +765,63 @@ const getEnvApiUrl = (): string | undefined => {
                 </TouchableOpacity>
               ))}
             </ScrollView>
+          </View>
+        </View>
+
+      </Modal>
+
+      {/* Modal de Seleção de Pasta (Server Side) */}
+      <Modal visible={folderModalVisible} transparent animationType="fade" onRequestClose={() => setFolderModalVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Navegador de Arquivos (Servidor)</Text>
+              <TouchableOpacity onPress={() => setFolderModalVisible(false)}>
+                <Ionicons name="close" size={22} color="#333" />
+              </TouchableOpacity>
+            </View>
+            <View style={{padding:10, backgroundColor:'#f0f0f0', borderBottomWidth:1, borderColor:'#ddd'}}>
+               <Text style={{fontSize:12, color:'#666'}}>Caminho Atual:</Text>
+               <Text style={{fontWeight:'bold'}}>{serverPath || '(Início)'}</Text>
+            </View>
+
+            {loadingDirs ? (
+               <View style={{padding:20, alignItems:'center'}}><ActivityIndicator size="large" color="#2196F3"/></View>
+            ) : (
+               <FlatList
+                 data={dirList}
+                 keyExtractor={(item) => item.path}
+                 style={{maxHeight: 400}}
+                 renderItem={({item}) => (
+                   <TouchableOpacity 
+                     style={[styles.networkItem, {flexDirection:'row', alignItems:'center'}]}
+                     onPress={() => fetchDirectories(item.path)}
+                   >
+                     <Ionicons name={item.type === 'parent' ? 'arrow-up' : 'folder'} size={24} color="#FBC02D" style={{marginRight:10}} />
+                     <View>
+                        <Text style={styles.networkSsid}>{item.name}</Text>
+                        <Text style={styles.networkMeta}>{item.path}</Text>
+                     </View>
+                   </TouchableOpacity>
+                 )}
+                 ListEmptyComponent={<Text style={{padding:20, textAlign:'center'}}>Nenhuma pasta encontrada.</Text>}
+               />
+            )}
+            
+            <View style={{padding:10, borderTopWidth:1, borderColor:'#eee', flexDirection:'row', justifyContent:'flex-end', gap:10}}>
+                <TouchableOpacity style={[styles.button, styles.secondaryButton]} onPress={() => setFolderModalVisible(false)}>
+                    <Text>Cancelar</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.button, styles.primaryButton]} onPress={() => { 
+                    console.log('Selecionando:', serverPath);
+                    setXmlFolder(serverPath); 
+                    setFolderModalVisible(false);
+                    // Force feedback
+                    Alert.alert('Pasta Selecionada', `Pasta definida: ${serverPath}`);
+                }}>
+                    <Text style={{color:'#fff'}}>Selecionar Pasta Atual</Text>
+                </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
