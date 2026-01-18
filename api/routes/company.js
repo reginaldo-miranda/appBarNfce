@@ -5,8 +5,30 @@ import fs from 'fs';
 import path from 'path';
 
 // Configuração do Multer para upload de certificados
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Configuração do Multer com DiskStorage para maior controle
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    // Garante que SEMPRE salva em api/certs, independente de onde rodar o node
+    const dir = path.join(__dirname, '../certs');
+    if (!fs.existsSync(dir)){
+        fs.mkdirSync(dir, { recursive: true });
+    }
+    cb(null, dir);
+  },
+  filename: function (req, file, cb) {
+    // Manter extensão original ou .pfx
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, 'cert-' + uniqueSuffix + '.pfx');
+  }
+});
+
 const upload = multer({ 
-  dest: 'certs/', 
+  storage: storage,
   limits: { fileSize: 5 * 1024 * 1024 } // 5MB
 });
 
@@ -166,15 +188,8 @@ router.post("/nfce-config", upload.single('certificado'), async (req, res) => {
     let certificadoPath = null;
 
     if (req.file) {
-      // Mover para local final ou manter onde o multer salvou
-      // O multer salva com nome aleatório no dest 'certs/'
-      // Vamos guardar o caminho relativo ou absoluto
       certificadoPath = req.file.path;
-      
-      // Se quiser renomear para manter extensão .pfx:
-      const newPath = `${req.file.path}.pfx`;
-      fs.renameSync(req.file.path, newPath);
-      certificadoPath = newPath;
+      console.log("[DEBUG] Novo certificado salvo em:", certificadoPath);
     }
 
     // Busca empresa existente

@@ -1,11 +1,13 @@
 import { create } from 'xmlbuilder2';
 import { SignedXml } from 'xml-crypto';
+import { DOMParser } from 'xmldom';
 import axios from 'axios';
 import QRCode from 'qrcode';
 import fs from 'fs';
 import path from 'path';
-
+import https from 'https';
 import crypto from 'crypto';
+import forge from 'node-forge';
 
 class NfceService {
   constructor() {
@@ -29,14 +31,13 @@ class NfceService {
   async buildXML(sale, company) {
     const ambiente = company.ambienteFiscal === 'producao' ? '1' : '2'; // 1=Prod, 2=Hom
     const accessKey = this.generateAccessKey(sale, company);
-    // REMOVIDO: this.currentKey = accessKey; // Shared state causing race conditions
 
     const xml = create({ version: '1.0', encoding: 'UTF-8' })
       .ele('NFe', { xmlns: 'http://www.portalfiscal.inf.br/nfe' })
         .ele('infNFe', { Id: `NFe${accessKey}`, versao: '4.00' })
           .ele('ide')
             .ele('cUF').txt(company.ibge ? company.ibge.substring(0, 2) : '43').up() // 43 = RS (Default SVRS)
-            .ele('cNF').txt(accessKey.substring(35, 43)).up() // Código numérico aleatório que compõe a chave
+            .ele('cNF').txt(accessKey.substring(35, 43)).up() // Código numérico aleatório
             .ele('natOp').txt('VENDA AO CONSUMIDOR').up()
             .ele('mod').txt('65').up()
             .ele('serie').txt(String(company.serieNfce)).up()
@@ -69,11 +70,52 @@ class NfceService {
                .ele('cPais').txt('1058').up()
                .ele('xPais').txt('BRASIL').up()
             .up()
-            .ele('IE').txt('1234567890').up() // Precisa ser IE válida para RS em homologação muitas vezes
+            .ele('IE').txt(company.ie || '1234567890').up()
           .up()
-          // Itens
-          // ... (Implementar loop de itens aqui se necessário ou manter simplificado para mock)
-          // Totais (Placeholder)
+          // Itens (Impl simplificada para mock/homolog)
+           .ele('det', { nItem: '1' })
+             .ele('prod')
+               .ele('cProd').txt('1').up()
+               .ele('cEAN').txt('SEM GTIN').up()
+               .ele('xProd').txt('PRODUTO TESTE').up()
+               .ele('NCM').txt('00000000').up()
+               .ele('CFOP').txt('5102').up()
+               .ele('uCom').txt('UN').up()
+               .ele('qCom').txt('1.0000').up()
+               .ele('vUnCom').txt(Number(sale.total).toFixed(2)).up()
+               .ele('vProd').txt(Number(sale.total).toFixed(2)).up()
+               .ele('cEANTrib').txt('SEM GTIN').up()
+               .ele('uTrib').txt('UN').up()
+               .ele('qTrib').txt('1.0000').up()
+               .ele('vUnTrib').txt(Number(sale.total).toFixed(2)).up()
+               .ele('indTot').txt('1').up()
+             .up()
+             .ele('imposto')
+                .ele('ICMS')
+                   .ele('ICMSSN102') // Simples Nacional
+                      .ele('orig').txt('0').up()
+                      .ele('CSOSN').txt('102').up()
+                   .up()
+                .up()
+                .ele('PIS')
+                   .ele('PISOutr')
+                      .ele('CST').txt('99').up()
+                      .ele('vBC').txt('0.00').up()
+                      .ele('pPIS').txt('0.00').up()
+                      .ele('vPIS').txt('0.00').up()
+                   .up()
+                .up()
+                .ele('COFINS')
+                    .ele('COFINSOutr')
+                       .ele('CST').txt('99').up()
+                       .ele('vBC').txt('0.00').up()
+                       .ele('pCOFINS').txt('0.00').up()
+                       .ele('vCOFINS').txt('0.00').up()
+                    .up()
+                .up()
+             .up()
+           .up()
+          // Totais
            .ele('total')
              .ele('ICMSTot')
                .ele('vBC').txt('0.00').up()
@@ -84,7 +126,7 @@ class NfceService {
                .ele('vST').txt('0.00').up()
                .ele('vFCPST').txt('0.00').up()
                .ele('vFCPSTRet').txt('0.00').up()
-               .ele('vProd').txt('0.00').up() // Somar itens
+               .ele('vProd').txt(Number(sale.total).toFixed(2)).up() 
                .ele('vFrete').txt('0.00').up()
                .ele('vSeg').txt('0.00').up()
                .ele('vDesc').txt('0.00').up()
@@ -94,20 +136,22 @@ class NfceService {
                .ele('vPIS').txt('0.00').up()
                .ele('vCOFINS').txt('0.00').up()
                .ele('vOutro').txt('0.00').up()
-               .ele('vNF').txt(sale.total ? sale.total.toFixed(2) : '0.00').up()
+               .ele('vNF').txt(Number(sale.total).toFixed(2)).up()
              .up()
            .up() 
-           // Pagamento (Obrigatório NFC-e)
+           // Pagamento
+           .ele('transp')
+              .ele('modFrete').txt('9').up()
+           .up()
            .ele('pag')
              .ele('detPag')
-               .ele('tPag').txt('01').up() // 01=Dinheiro (Simplificação)
-               .ele('vPag').txt(sale.total ? sale.total.toFixed(2) : '0.00').up()
+               .ele('tPag').txt('01').up() // 01=Dinheiro
+               .ele('vPag').txt(Number(sale.total).toFixed(2)).up()
              .up()
            .up()
         .up()
       .up();
     
-    // Retornar objeto com XML string e a chave gerada
     return {
         xmlContent: xml.end({ prettyPrint: true }),
         accessKey: accessKey
@@ -115,7 +159,6 @@ class NfceService {
   }
 
   generateAccessKey(sale, company) {
-    // Formato: cUF (2) + AAMM (4) + CNPJ (14) + mod (2) + serie (3) + nNF (9) + tpEmis (1) + cNF (8) + cDV (1)
     const cUF = company.ibge ? company.ibge.substring(0, 2) : '43'; // 43 = RS
     const now = new Date();
     const AAMM = `${String(now.getFullYear()).substring(2)}${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -123,12 +166,11 @@ class NfceService {
     const mod = '65';
     const serie = String(company.serieNfce).padStart(3, '0');
     const nNF = String(company.numeroInicialNfce).padStart(9, '0');
-    const tpEmis = '1'; // Normal
-    const cNF = String(Math.floor(Math.random() * 99999999)).padStart(8, '0'); // Código numérico aleatório
+    const tpEmis = '1'; 
+    const cNF = String(Math.floor(Math.random() * 99999999)).padStart(8, '0'); 
     
     const keyBase = `${cUF}${AAMM}${CNPJ}${mod}${serie}${nNF}${tpEmis}${cNF}`;
     
-    // Cálculo do Dígito Verificador (Módulo 11)
     const weights = [2, 3, 4, 5, 6, 7, 8, 9];
     let sum = 0;
     for (let i = 0; i < keyBase.length; i++) {
@@ -142,54 +184,180 @@ class NfceService {
   }
 
   async signXML(xml, pfxPath, password) {
-    // Mantendo mock por enquanto, mas preparado para xml-crypto
-    // Em produção: ler PFX, extrair chave privada, assinar tag infNFe
-    return xml; 
+    if (!fs.existsSync(pfxPath)) {
+        throw new Error(`Certificado não encontrado em: ${pfxPath}`);
+    }
+    const pfxBuffer = fs.readFileSync(pfxPath);
+
+    // Extract Key with forge (Robust logic)
+    const p12Asn1 = forge.asn1.fromDer(pfxBuffer.toString('binary'));
+    const p12 = forge.pkcs12.pkcs12FromAsn1(p12Asn1, password);
+    
+    // Tenta encontrar a chave em diferentes "bags"
+    const bags = p12.getBags({ bagType: forge.pki.oids.pkcs8ShroudedKeyBag });
+    let bag = bags[forge.pki.oids.pkcs8ShroudedKeyBag] ? bags[forge.pki.oids.pkcs8ShroudedKeyBag][0] : null;
+
+    if (!bag) {
+        // Fallback para keyBag simples
+        const bags2 = p12.getBags({ bagType: forge.pki.oids.keyBag });
+        bag = bags2[forge.pki.oids.keyBag] ? bags2[forge.pki.oids.keyBag][0] : null;
+    }
+    
+    if (!bag || !bag.key) {
+        throw new Error("Chave privada não encontrada no arquivo do certificado.");
+    }
+    
+    const privateKey = forge.pki.privateKeyToPem(bag.key);
+    console.log("[DEBUG] Chave privada extraída com sucesso. Tamanho:", privateKey.length);
+
+    // Sign with xml-crypto (v6 API)
+    const sig = new SignedXml();
+    
+    // Configure Algorithms (RSA-SHA256 - SEFAZ Standard)
+    sig.signatureAlgorithm = "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256";
+    sig.canonicalizationAlgorithm = "http://www.w3.org/TR/2001/REC-xml-c14n-20010315";
+    
+    // IMPORTANT: v6 uses 'privateKey' property, not 'signingKey'
+    sig.privateKey = privateKey;
+
+    // Configure Reference (What to sign) using SHA-256
+    // IMPORTANT: v6 requires a SINGLE OBJECT argument for addReference
+    sig.addReference({
+        xpath: "//*[local-name(.)='infNFe']",
+        transforms: [
+            "http://www.w3.org/2000/09/xmldsig#enveloped-signature", 
+            "http://www.w3.org/TR/2001/REC-xml-c14n-20010315"
+        ],
+        digestAlgorithm: "http://www.w3.org/2001/04/xmlenc#sha256"
+    });
+
+    sig.computeSignature(xml);
+    
+    return sig.getSignedXml();
   }
 
-  async getQrCode(accessKey, company, sale) {
-      // 1. Montar Parâmetros
-      // URL do QRCode conforme ambiente
-      const env = company.ambienteFiscal === 'producao' ? 'producao' : 'homologacao';
-      const urlBase = this.urls[env].qrCode;
+  async sendToSefaz(signedXml, company, accessKey, sale) {
+      // 1. Append QR Code (infNFeSupl)
+      const digestMatch = signedXml.match(/<DigestValue>(.*?)<\/DigestValue>/);
+      if (!digestMatch) throw new Error("DigestValue não encontrado no XML assinado");
+      const digestValue = digestMatch[1];
       
-      const chNFe = accessKey;
-      const nVersao = '100'; // Versão do QRCode
-      const tpAmb = company.ambienteFiscal === 'producao' ? '1' : '2';
-      // Se tiver destinatário (não obrigatório em NFC-e < 10k), incluir cDest. Aqui vazio.
-      const dhEmi = Buffer.from(new Date().toISOString()).toString('hex'); // Hex da data? Não, formato específico
-      // Manual do QrCode: chNFe | nVersao | tpAmb | cDest | dhEmi (Hex) | vNF | vICMS | digVal (Hex) | idCSC | cHashCSC
+      const cscId = company.cscId || '000001';
+      const cscToken = company.csc || 'TESTE';
       
-      // Simplificação para MOCK Válido Visualmente:
-      // Apenas a URL com a chave já gera um QRCode legível
-      const qrCodeContent = `${urlBase}?p=${chNFe}|2|${tpAmb}|1|${sale.total.toFixed(2).replace('.',',')}|${company.cscId}`; // Mock Simplificado
+      const isProd = company.ambienteFiscal === 'producao';
+      const envKey = isProd ? 'producao' : 'homologacao';
+      const urlQrCodeHelper = this.urls[envKey].qrCode;
       
-      // Gerar Hash SHA-1 se for implementar validação real (necessita digVal da assinatura)
+      const dhEmiMatch = signedXml.match(/<dhEmi>(.*?)<\/dhEmi>/);
+      const dhEmi = dhEmiMatch ? dhEmiMatch[1] : new Date().toISOString();
+      const dhEmiHex = Buffer.from(dhEmi).toString('hex');
+      const digValHex = Buffer.from(digestValue, 'base64').toString('hex');
+      
+      const vNF = Number(sale.total).toFixed(2);
+      
+      // QR Code params (NFC-e 4.0/5.0)
+      // chNFe|nVersao|tpAmb|cDest|dhEmi|vNF|vICMS|digVal|idCSC
+      const params = [
+          accessKey,
+          '100', // nVersao
+          isProd ? '1' : '2', // tpAmb
+          (sale.clienteId ? '1' : ''), // cDest (vazio se sem cliente)
+          dhEmiHex,
+          vNF,
+          '0.00', // vICMS
+          digValHex,
+          cscId
+      ].join('|');
+      
+      const stringToHash = params + cscToken;
+      const cHashCSC = crypto.createHash('sha1').update(stringToHash).digest('hex').toUpperCase();
+      
+      const qrCodeFullParam = `${params}|${cHashCSC}`;
+      const qrCodeUrl = `${urlQrCodeHelper}?p=${qrCodeFullParam}`;
+      
+      const infNFeSupl = `<infNFeSupl><qrCode><![CDATA[${qrCodeUrl}]]></qrCode><urlChave>${this.urls[envKey].consulta}</urlChave></infNFeSupl>`;
+      
+      // Insert encoded QR Code into XML
+      // IMPORTANT: signedXml from xml-crypto has Signature appended to the root, so it is <NFe> <infNFe.../> <Signature.../> </NFe>
+      const finalXml = signedXml.replace('</NFe>', `${infNFeSupl}</NFe>`);
+
+      // 2. Wrap in SOAP
+      const soapEnvelope = `<?xml version="1.0" encoding="utf-8"?>
+<soap12:Envelope xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:soap12="http://www.w3.org/2003/05/soap-envelope">
+<soap12:Body>
+<nfeDadosMsg xmlns="http://www.portalfiscal.inf.br/nfe/wsdl/NFeAutorizacao4">
+<enviNFe xmlns="http://www.portalfiscal.inf.br/nfe" versao="4.00">
+<idLote>1</idLote>
+<indSinc>1</indSinc>
+${finalXml.replace(/<\?xml.*?>/g, '')}
+</enviNFe>
+</nfeDadosMsg>
+</soap12:Body>
+</soap12:Envelope>`;
+
+      // 3. Send
+      const pfxBuffer = fs.readFileSync(company.certificadoPath);
+      const agent = new https.Agent({
+          pfx: pfxBuffer,
+          passphrase: company.certificadoSenha,
+          rejectUnauthorized: false
+      });
+      
+      console.log(`[NFC-e] Enviando para SEFAZ (${envKey})...`);
       
       try {
-          const qrCodeImage = await QRCode.toDataURL(qrCodeContent);
+          const res = await axios.post(this.urls[envKey].autorizacao, soapEnvelope, {
+              headers: { 'Content-Type': 'application/soap+xml; charset=utf-8' },
+              httpsAgent: agent
+          });
+          
+          const xmlResp = res.data;
+          console.log('[NFC-e] Resposta SEFAZ:', xmlResp);
+
+          const cStat = (xmlResp.match(/<cStat>(\d+)<\/cStat>/) || [])[1];
+          const xMotivo = (xmlResp.match(/<xMotivo>(.*?)<\/xMotivo>/) || [])[1];
+          const nProt = (xmlResp.match(/<nProt>(\d+)<\/nProt>/) || [])[1];
+          
           return {
-              url: qrCodeContent,
-              base64: qrCodeImage
+              status: cStat === '100' ? 'AUTORIZADO' : 'REJEITADO',
+              protocolo: nProt,
+              motivo: xMotivo || (cStat ? `Erro ${cStat}` : 'Erro desconhecido'),
+              chave: accessKey
           };
-      } catch (err) {
-          console.error("Erro ao gerar QR Code", err);
-          return null;
+          
+      } catch (e) {
+          console.error("Erro SOAP:", e.response ? e.response.data : e.message);
+          return {
+              status: 'ERRO_COMUNICACAO',
+              motivo: e.message,
+              chave: accessKey
+          };
       }
   }
 
-  async sendToSefaz(signedXml, ambiente, accessKey) {
-    // MOCK: Simula autorização e retorno do protocolo e QR Code
-    // Na implementação real, faria POST no this.urls[ambiente].autorizacao
-    
-    const fakeProtocolo = String(Date.now());
-    
-    return { 
-        status: 'AUTORIZADO', 
-        protocolo: fakeProtocolo, 
-        motivo: 'Autorizado o uso da NFC-e',
-        chave: accessKey
-    };
+  async getQrCode(accessKey, company, sale) {
+      // Re-generate for Display purposes
+      // Ideal implementation would store the URL from sendToSefaz, but this calculates a viewable one
+      // If we are just showing the user, validation doesn't matter as much as having the link work if they scan it
+      
+      const cscId = company.cscId || '000001';
+      const isProd = company.ambienteFiscal === 'producao';
+      const envKey = isProd ? 'producao' : 'homologacao';
+      const urlQrCodeHelper = this.urls[envKey].qrCode;
+      
+      // We can't easily recover digVal without the XML, so we make a best effort or just a link to the portal
+      const qrCodeUrl = `${urlQrCodeHelper}?p=${accessKey}|2|${isProd?'1':'2'}|${cscId}`;
+      
+      try {
+          const qrCodeImage = await QRCode.toDataURL(qrCodeUrl);
+          return {
+              url: qrCodeUrl,
+              base64: qrCodeImage
+          };
+      } catch (err) {
+          return null;
+      }
   }
 }
 

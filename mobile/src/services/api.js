@@ -138,7 +138,7 @@ const DEFAULT_TIMEOUT_MS = 15000;
 const api = axios.create({
   baseURL: initialBaseUrl || '',
   timeout: DEFAULT_TIMEOUT_MS,
-  headers: { 'Content-Type': 'application/json' },
+  headers: { },
 });
 
 // Configurar retry-axios na instância

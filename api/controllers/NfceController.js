@@ -43,7 +43,7 @@ export const emitirNfce = async (req, res) => {
 
         // 3. Enviar para SEFAZ (Mock ou Real)
         // Passando accessKey para garantir que o mock responda com a chave correta
-        const sefazResult = await NfceService.sendToSefaz(signedXml, company.ambienteFiscal, accessKey);
+        const sefazResult = await NfceService.sendToSefaz(signedXml, company, accessKey, sale);
 
         // 4. Gerar QR Code
         const qrCodeResult = await NfceService.getQrCode(sefazResult.chave, company, sale);

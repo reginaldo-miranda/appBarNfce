@@ -346,3 +346,18 @@ prisma.$connect()
     console.warn('WS desativado:', e?.message || e);
   }
 })();
+
+// Tratamento de encerramento gracioso
+const gracefulShutdown = async () => {
+  console.log('\n🛑 Encerrando servidor...');
+  try {
+    await prisma.$disconnect();
+    console.log('✅ Conexão com o Banco de Dados fechada.');
+  } catch (err) {
+    console.error('Erro ao fechar conexão com o banco:', err);
+  }
+  process.exit(0);
+};
+
+process.on('SIGINT', gracefulShutdown);
+process.on('SIGTERM', gracefulShutdown);

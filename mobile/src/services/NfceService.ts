@@ -36,21 +36,29 @@ export const NfceService = {
         if (certificadoFile) {
             console.log("updateConfig: Preparando upload.", Platform.OS, certificadoFile);
             if (Platform.OS === 'web') {
-                // No Web, a forma mais robusta é buscar o blob da URI se o objeto File não funcionar diretamente
-                // DocumentPicker retorna .uri como blob:... ou base64 on Web
-                try {
-                    const response = await fetch(certificadoFile.uri);
-                    const blob = await response.blob();
-                    // Criar um File a partir do Blob para manter o nome (importante para o backend)
-                    const file = new File([blob], certificadoFile.name, { type: certificadoFile.mimeType || 'application/x-pkcs12' });
-                    formData.append('certificado', file);
-                    console.log("updateConfig: Blob obtido e appendado:", file);
-                } catch (e) {
-                    console.error("Erro ao converter URI para Blob:", e);
-                    // Fallback
-                    if (certificadoFile.file) {
-                        formData.append('certificado', certificadoFile.file);
-                    } else {
+                // No Web, a preferência é usar o objeto File diretamente se disponível
+                if (certificadoFile.file) {
+                    // Expo DocumentPicker (Objeto Asset)
+                    const fname = certificadoFile.name || 'certificado.pfx';
+                    formData.append('certificado', certificadoFile.file, fname);
+                    console.log("[Web] Usando certificadoFile.file direto:", fname);
+                } else if (certificadoFile instanceof File) {
+                    // Caso seja passado o objeto File diretamente
+                    formData.append('certificado', certificadoFile, certificadoFile.name);
+                    console.log("[Web] Usando certificadoFile direto (instanceof File)");
+                } else {
+                    // Fallback: tentar converter URI (blob: ou data:)
+                    try {
+                        console.log("[Web] Tentando fetch na URI:", certificadoFile.uri);
+                        const response = await fetch(certificadoFile.uri);
+                        const blob = await response.blob();
+                        const fname = certificadoFile.name || 'certificado.pfx';
+                        const file = new File([blob], fname, { type: certificadoFile.mimeType || 'application/x-pkcs12' });
+                        formData.append('certificado', file, fname);
+                        console.log("[Web] Blob obtido e convertido:", file);
+                    } catch (e) {
+                        console.error("[Web] Erro ao processar arquivo:", e);
+                        // Última tentativa: enviar o objeto como está, talvez o Axios resolva
                         formData.append('certificado', certificadoFile);
                     }
                 }
@@ -87,7 +95,8 @@ export const NfceService = {
                 ambiente: company.ambienteFiscal || 'homologacao',
                 serie: company.serieNfce ? String(company.serieNfce) : '1',
                 numeroInicial: company.numeroInicialNfce ? String(company.numeroInicialNfce) : '',
-                certificadoSenha: company.certificadoSenha || ''
+                certificadoSenha: company.certificadoSenha || '',
+                certificadoPath: company.certificadoPath || null
             };
         } catch (error) {
             console.error("Erro ao buscar config NFC-e:", error);

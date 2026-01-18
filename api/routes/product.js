@@ -4,6 +4,7 @@ import { getActivePrisma } from "../lib/prisma.js";
 const router = express.Router();
 
 // Helper de compatibilidade: normaliza decimais e adiciona _id
+// Helper de compatibilidade: normaliza decimais e adiciona _id
 const mapProduct = (p) => {
   const num = (v) => Number(v);
   return {
@@ -28,13 +29,21 @@ const mapProduct = (p) => {
     tipoId: p.tipoId || null,
     groupId: p.groupId || null,
     unidadeMedidaId: p.unidadeMedidaId || null,
-    unidadeMedidaId: p.unidadeMedidaId || null,
     dataInclusao: p.dataInclusao,
     temTamanhos: !!p.temTamanhos,
     tamanhos: Array.isArray(p.tamanhos) ? p.tamanhos.map(t => ({
       ...t,
       preco: Number(t.preco)
-    })) : []
+    })) : [],
+    
+    // Campos Fiscais
+    ncm: p.ncm || '',
+    cest: p.cest || '',
+    cfop: p.cfop || '',
+    csosn: p.csosn || '',
+    origem: p.origem || 0,
+    icmsSituacao: p.icmsSituacao || '',
+    icmsAliquota: p.icmsAliquota ? num(p.icmsAliquota) : null
   };
 };
 
@@ -58,7 +67,14 @@ router.get("/", async (req, res) => {
 router.post("/create", async (req, res) => {
   try {
     const prisma = getActivePrisma();
-    const { nome, descricao, preco, precoVenda, precoCusto, categoria, tipo, grupo, unidade, estoque, quantidade, estoqueMinimo, ativo, dadosFiscais, imagem, tempoPreparoMinutos, disponivel, temVariacao, categoriaId, tipoId, unidadeMedidaId, groupId, setoresImpressaoIds, temTamanhos, tamanhos } = req.body;
+    const { 
+        nome, descricao, preco, precoVenda, precoCusto, categoria, tipo, grupo, unidade, 
+        estoque, quantidade, estoqueMinimo, ativo, dadosFiscais, imagem, tempoPreparoMinutos, 
+        disponivel, temVariacao, categoriaId, tipoId, unidadeMedidaId, groupId, setoresImpressaoIds, 
+        temTamanhos, tamanhos,
+        // Fiscal
+        ncm, cest, cfop, csosn, origem
+    } = req.body;
 
     const pv = precoVenda ?? preco ?? 0;
     const pc = precoCusto ?? 0;
@@ -95,10 +111,15 @@ router.post("/create", async (req, res) => {
         imagem,
         tempoPreparoMinutos: tempoPreparoMinutos ?? 0,
         disponivel: disponivel ?? true,
-        tempoPreparoMinutos: tempoPreparoMinutos ?? 0,
-        disponivel: disponivel ?? true,
         temVariacao: temVariacao !== undefined ? !!temVariacao : false,
-        temTamanhos: temTamanhos !== undefined ? !!temTamanhos : false
+        temTamanhos: temTamanhos !== undefined ? !!temTamanhos : false,
+        
+        // Fiscal NFC-e
+        ncm: ncm ? String(ncm).replace(/\D/g, '') : null,
+        cest: cest ? String(cest).replace(/\D/g, '') : null,
+        cfop: cfop ? String(cfop).replace(/\D/g, '') : null,
+        csosn: csosn ? String(csosn) : null,
+        origem: origem !== undefined ? Number(origem) : 0
       }
     });
 
@@ -375,7 +396,14 @@ router.put("/update/:id", async (req, res) => {
       categoriaId: categoriaId !== undefined ? (Number.isInteger(Number(categoriaId)) ? Number(categoriaId) : undefined) : undefined,
       tipoId: tipoId !== undefined ? (Number.isInteger(Number(tipoId)) ? Number(tipoId) : undefined) : undefined,
       groupId: groupId !== undefined ? (Number.isInteger(Number(groupId)) ? Number(groupId) : undefined) : undefined,
-      unidadeMedidaId: unidadeMedidaId !== undefined ? (Number.isInteger(Number(unidadeMedidaId)) ? Number(unidadeMedidaId) : undefined) : undefined
+      unidadeMedidaId: unidadeMedidaId !== undefined ? (Number.isInteger(Number(unidadeMedidaId)) ? Number(unidadeMedidaId) : undefined) : undefined,
+
+      // Fiscal (Updated)
+      ncm: req.body.ncm ? String(req.body.ncm).replace(/\D/g, '') : undefined,
+      cest: req.body.cest ? String(req.body.cest).replace(/\D/g, '') : undefined,
+      cfop: req.body.cfop ? String(req.body.cfop).replace(/\D/g, '') : undefined,
+      csosn: req.body.csosn ? String(req.body.csosn) : undefined,
+      origem: req.body.origem !== undefined ? Number(req.body.origem) : undefined
     };
 
     // Log payload for debugging
@@ -469,7 +497,14 @@ router.put("/:id", async (req, res) => {
       categoriaId: categoriaId !== undefined ? (Number.isInteger(Number(categoriaId)) ? Number(categoriaId) : undefined) : undefined,
       tipoId: tipoId !== undefined ? (Number.isInteger(Number(tipoId)) ? Number(tipoId) : undefined) : undefined,
       groupId: groupId !== undefined ? (Number.isInteger(Number(groupId)) ? Number(groupId) : undefined) : undefined,
-      unidadeMedidaId: unidadeMedidaId !== undefined ? (Number.isInteger(Number(unidadeMedidaId)) ? Number(unidadeMedidaId) : undefined) : undefined
+      unidadeMedidaId: unidadeMedidaId !== undefined ? (Number.isInteger(Number(unidadeMedidaId)) ? Number(unidadeMedidaId) : undefined) : undefined,
+      
+      // Fiscal
+      ncm: req.body.ncm ? String(req.body.ncm).replace(/\D/g, '') : undefined,
+      cest: req.body.cest ? String(req.body.cest).replace(/\D/g, '') : undefined,
+      cfop: req.body.cfop ? String(req.body.cfop).replace(/\D/g, '') : undefined,
+      csosn: req.body.csosn ? String(req.body.csosn) : undefined,
+      origem: req.body.origem !== undefined ? Number(req.body.origem) : undefined
     };
 
     const produtoAtualizado = await prisma.product.update({

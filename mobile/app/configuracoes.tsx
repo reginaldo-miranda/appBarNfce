@@ -55,6 +55,7 @@ export default function ConfiguracoesScreen() {
   const [numeroInicial, setNumeroInicial] = useState('');
   const [savingFiscal, setSavingFiscal] = useState(false);
   const [showCertPassword, setShowCertPassword] = useState(false);
+  const [savedCertPath, setSavedCertPath] = useState<string | null>(null);
 
 
   useEffect(() => {
@@ -89,6 +90,8 @@ export default function ConfiguracoesScreen() {
                  if (config.serie) setSerie(config.serie);
                  if (config.numeroInicial) setNumeroInicial(config.numeroInicial);
                  if (config.certificadoSenha) setCertPassword(config.certificadoSenha);
+                 setSavedCertPath(config.certificadoPath || null);
+                 setSavedCertPath(config.certificadoPath || null);
              }
          } catch (e) {
              console.log("Ainda não conectou ou erro ao buscar config fiscal");
@@ -297,17 +300,38 @@ const getEnvApiUrl = (): string | undefined => {
   // Handlers Fiscais
   const handleSelectCert = async () => {
     try {
+      console.log('Iniciando seleção de certificado...');
       const res = await DocumentPicker.getDocumentAsync({
         type: 'application/x-pkcs12', // .pfx or .p12
-        copyToCacheDirectory: true
+        copyToCacheDirectory: true,
+        multiple: false
       });
-      if (res.canceled) return;
       
-      const file = res.assets[0];
+      console.log('Resultado DocumentPicker:', res);
+
+      if (res.canceled) {
+        console.log('Seleção cancelada');
+        return;
+      }
+      
+      const file = res.assets ? res.assets[0] : (res as any); // Compatibilidade
+      if (!file) {
+        Alert.alert('Erro', 'Arquivo não identificado.');
+        return;
+      }
+
+      console.log('Arquivo selecionado:', file);
       setSelectedCert(file);
-      Alert.alert('Certificado', `Arquivo selecionado: ${file.name}`);
+      
+      // On Web, alert immediately to confirm selection
+      if (Platform.OS === 'web') {
+        window.alert(`Arquivo selecionado: ${file.name}`);
+      } else {
+        Alert.alert('Certificado', `Arquivo selecionado: ${file.name}`);
+      }
     } catch (e) {
-      Alert.alert('Erro', 'Falha ao selecionar arquivo.');
+      console.error('Erro handleSelectCert:', e);
+      Alert.alert('Erro', 'Falha ao selecionar arquivo: ' + String(e));
     }
   };
 
@@ -606,7 +630,11 @@ const getEnvApiUrl = (): string | undefined => {
           <TouchableOpacity style={[styles.button, styles.secondaryButton]} onPress={handleSelectCert} activeOpacity={0.8}>
              <Ionicons name={selectedCert ? "checkmark-circle" : "document-text"} size={20} color={selectedCert ? "green" : "#666"} />
              <Text style={styles.buttonText}>
-               {selectedCert ? `Selecionado: ${selectedCert.name}` : 'Selecionar Arquivo .pfx'}
+               {selectedCert 
+                 ? `Selecionado: ${selectedCert.name}` 
+                 : savedCertPath 
+                   ? `📂 Atual: ${savedCertPath.split(/[/\\]/).pop()} (Toque para trocar)`
+                   : 'Selecionar Arquivo .pfx'}
              </Text>
           </TouchableOpacity>
         </View>
