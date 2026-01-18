@@ -10,6 +10,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 export const emitirNfce = async (req, res) => {
+    console.log("[DEBUG] Controller: emitirNfce chamado. Body:", req.body);
     try {
         const { saleId } = req.body;
         if (!saleId) {
@@ -58,6 +59,7 @@ export const emitirNfce = async (req, res) => {
         const xmlPath = path.join(xmlDir, xmlFilename);
         
         console.log(`[DEBUG] Tentando salvar XML em: ${xmlPath}`);
+        console.log(`[DEBUG] Tamanho do XML assinado: ${signedXml ? signedXml.length : 0} bytes`);
 
         try {
             fs.writeFileSync(xmlPath, signedXml);

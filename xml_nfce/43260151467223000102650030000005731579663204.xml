@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<NFe xmlns="http://www.portalfiscal.inf.br/nfe">
+  <infNFe Id="NFe43260151467223000102650030000005731579663204" versao="4.00">
+    <ide>
+      <cUF>43</cUF>
+      <cNF>57966320</cNF>
+      <natOp>VENDA AO CONSUMIDOR</natOp>
+      <mod>65</mod>
+      <serie>3</serie>
+      <nNF>573</nNF>
+      <dhEmi>2026-01-18T03:22:48.177Z</dhEmi>
+      <tpNF>1</tpNF>
+      <idDest>1</idDest>
+      <cMunFG>4314902</cMunFG>
+      <tpImp>4</tpImp>
+      <tpEmis>1</tpEmis>
+      <cDV>4</cDV>
+      <tpAmb>2</tpAmb>
+      <finNFe>1</finNFe>
+      <indFinal>1</indFinal>
+      <indPres>1</indPres>
+      <procEmi>0</procEmi>
+      <verProc>1.0.0</verProc>
+    </ide>
+    <emit>
+      <CNPJ>51467223000102</CNPJ>
+      <xNome>firma teste</xNome>
+      <enderEmit>
+        <xLgr>Rua Teste</xLgr>
+        <nro>123</nro>
+        <xBairro>Centro</xBairro>
+        <cMun>4314902</cMun>
+        <xMun>Porto Alegre</xMun>
+        <UF>RS</UF>
+        <CEP>90000000</CEP>
+        <cPais>1058</cPais>
+        <xPais>BRASIL</xPais>
+      </enderEmit>
+      <IE>1234567890</IE>
+    </emit>
+    <det nItem="1">
+      <prod>
+        <cProd>1</cProd>
+        <cEAN>SEM GTIN</cEAN>
+        <xProd>PRODUTO TESTE</xProd>
+        <NCM>00000000</NCM>
+        <CFOP>5102</CFOP>
+        <uCom>UN</uCom>
+        <qCom>1.0000</qCom>
+        <vUnCom>143.00</vUnCom>
+        <vProd>143.00</vProd>
+        <cEANTrib>SEM GTIN</cEANTrib>
+        <uTrib>UN</uTrib>
+        <qTrib>1.0000</qTrib>
+        <vUnTrib>143.00</vUnTrib>
+        <indTot>1</indTot>
+      </prod>
+      <imposto>
+        <ICMS>
+          <ICMSSN102>
+            <orig>0</orig>
+            <CSOSN>102</CSOSN>
+          </ICMSSN102>
+        </ICMS>
+        <PIS>
+          <PISOutr>
+            <CST>99</CST>
+            <vBC>0.00</vBC>
+            <pPIS>0.00</pPIS>
+            <vPIS>0.00</vPIS>
+          </PISOutr>
+        </PIS>
+        <COFINS>
+          <COFINSOutr>
+            <CST>99</CST>
+            <vBC>0.00</vBC>
+            <pCOFINS>0.00</pCOFINS>
+            <vCOFINS>0.00</vCOFINS>
+          </COFINSOutr>
+        </COFINS>
+      </imposto>
+    </det>
+    <total>
+      <ICMSTot>
+        <vBC>0.00</vBC>
+        <vICMS>0.00</vICMS>
+        <vICMSDeson>0.00</vICMSDeson>
+        <vFCP>0.00</vFCP>
+        <vBCST>0.00</vBCST>
+        <vST>0.00</vST>
+        <vFCPST>0.00</vFCPST>
+        <vFCPSTRet>0.00</vFCPSTRet>
+        <vProd>143.00</vProd>
+        <vFrete>0.00</vFrete>
+        <vSeg>0.00</vSeg>
+        <vDesc>0.00</vDesc>
+        <vII>0.00</vII>
+        <vIPI>0.00</vIPI>
+        <vIPIDevol>0.00</vIPIDevol>
+        <vPIS>0.00</vPIS>
+        <vCOFINS>0.00</vCOFINS>
+        <vOutro>0.00</vOutro>
+        <vNF>143.00</vNF>
+      </ICMSTot>
+    </total>
+    <transp>
+      <modFrete>9</modFrete>
+    </transp>
+    <pag>
+      <detPag>
+        <tPag>01</tPag>
+        <vPag>143.00</vPag>
+      </detPag>
+    </pag>
+  </infNFe>
+<Signature xmlns="http://www.w3.org/2000/09/xmldsig#"><SignedInfo><CanonicalizationMethod Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"/><SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"/><Reference URI="#NFe43260151467223000102650030000005731579663204"><Transforms><Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature"/><Transform Algorithm="http://www.w3.org/TR/2001/REC-xml-c14n-20010315"/></Transforms><DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/><DigestValue>WXoRxEtXV4X0YNeogPdYXt1HLV0xx92k3eFP0ufn88k=</DigestValue></Reference></SignedInfo><SignatureValue>dbeTkEP5MXyxTTEglHOaf7sKKYlAMyZ1LlGGKH2SoiUkN1O396b2/Z65CgDn2a+94CFaBbiNDdOnRdWOTxArKCosrQ7qmruLggijILSgZJSpzk8TBXixnJwQT+M9I5BMTBeDXpGQw7UGzP2Weo+e8MfUotpo7Bmfj0znSdPsP8RTNSWkwCijY11j/P+qYsLPB6M9OLOKOvpIeBNEz/jwyMP5doxdp4U55jeuAb+74K28JsE0IsNpboctR9UsxtrIEI/csWkiRmbMh0xqbznK5e9ee1yN/trt3TqTTSzDUh3mHnWAlKqAEKT23eu+FP4iSFfzLBeYYEYJJN1v91mE8w==</SignatureValue></Signature></NFe>

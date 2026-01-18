@@ -29,134 +29,153 @@ class NfceService {
    * Gera o XML da NFC-e baseado na Venda e Empresa
    */
   async buildXML(sale, company) {
-    const ambiente = company.ambienteFiscal === 'producao' ? '1' : '2'; // 1=Prod, 2=Hom
-    const accessKey = this.generateAccessKey(sale, company);
+    console.log("[DEBUG] buildXML iniciado", { saleId: sale.id, itemCount: sale.itens?.length });
+    try {
+        const ambiente = company.ambienteFiscal === 'producao' ? '1' : '2'; // 1=Prod, 2=Hom
+        const accessKey = this.generateAccessKey(sale, company);
+        console.log("[DEBUG] Chave gerada:", accessKey);
 
-    const xml = create({ version: '1.0', encoding: 'UTF-8' })
-      .ele('NFe', { xmlns: 'http://www.portalfiscal.inf.br/nfe' })
-        .ele('infNFe', { Id: `NFe${accessKey}`, versao: '4.00' })
-          .ele('ide')
-            .ele('cUF').txt(company.ibge ? company.ibge.substring(0, 2) : '43').up() // 43 = RS (Default SVRS)
-            .ele('cNF').txt(accessKey.substring(35, 43)).up() // Código numérico aleatório
-            .ele('natOp').txt('VENDA AO CONSUMIDOR').up()
-            .ele('mod').txt('65').up()
-            .ele('serie').txt(String(company.serieNfce)).up()
-            .ele('nNF').txt(String(company.numeroInicialNfce)).up()
-            .ele('dhEmi').txt(new Date().toISOString()).up()
-            .ele('tpNF').txt('1').up()
-            .ele('idDest').txt('1').up()
-            .ele('cMunFG').txt(company.ibge || '4314902').up() // Default Porto Alegre se nulo
-            .ele('tpImp').txt('4').up()
-            .ele('tpEmis').txt('1').up()
-            .ele('cDV').txt(accessKey.substring(43, 44)).up() // Dígito Verificador
-            .ele('tpAmb').txt(ambiente).up()
-            .ele('finNFe').txt('1').up()
-            .ele('indFinal').txt('1').up()
-            .ele('indPres').txt('1').up()
-            .ele('procEmi').txt('0').up()
-            .ele('verProc').txt('1.0.0').up()
-          .up()
-          .ele('emit')
-            .ele('CNPJ').txt(company.cnpj.replace(/\D/g, '')).up()
-            .ele('xNome').txt(company.razaoSocial.substring(0, 60)).up()
-            .ele('enderEmit')
-               .ele('xLgr').txt('Rua Teste').up()
-               .ele('nro').txt('123').up()
-               .ele('xBairro').txt('Centro').up()
-               .ele('cMun').txt(company.ibge || '4314902').up()
-               .ele('xMun').txt('Porto Alegre').up()
-               .ele('UF').txt('RS').up()
-               .ele('CEP').txt('90000000').up()
-               .ele('cPais').txt('1058').up()
-               .ele('xPais').txt('BRASIL').up()
-            .up()
-            .ele('IE').txt(company.ie || '1234567890').up()
-          .up()
-          // Itens (Impl simplificada para mock/homolog)
-           .ele('det', { nItem: '1' })
-             .ele('prod')
-               .ele('cProd').txt('1').up()
-               .ele('cEAN').txt('SEM GTIN').up()
-               .ele('xProd').txt('PRODUTO TESTE').up()
-               .ele('NCM').txt('00000000').up()
-               .ele('CFOP').txt('5102').up()
-               .ele('uCom').txt('UN').up()
-               .ele('qCom').txt('1.0000').up()
-               .ele('vUnCom').txt(Number(sale.total).toFixed(2)).up()
-               .ele('vProd').txt(Number(sale.total).toFixed(2)).up()
-               .ele('cEANTrib').txt('SEM GTIN').up()
-               .ele('uTrib').txt('UN').up()
-               .ele('qTrib').txt('1.0000').up()
-               .ele('vUnTrib').txt(Number(sale.total).toFixed(2)).up()
-               .ele('indTot').txt('1').up()
-             .up()
-             .ele('imposto')
-                .ele('ICMS')
-                   .ele('ICMSSN102') // Simples Nacional
-                      .ele('orig').txt('0').up()
-                      .ele('CSOSN').txt('102').up()
-                   .up()
-                .up()
-                .ele('PIS')
-                   .ele('PISOutr')
-                      .ele('CST').txt('99').up()
-                      .ele('vBC').txt('0.00').up()
-                      .ele('pPIS').txt('0.00').up()
-                      .ele('vPIS').txt('0.00').up()
-                   .up()
-                .up()
-                .ele('COFINS')
-                    .ele('COFINSOutr')
-                       .ele('CST').txt('99').up()
-                       .ele('vBC').txt('0.00').up()
-                       .ele('pCOFINS').txt('0.00').up()
-                       .ele('vCOFINS').txt('0.00').up()
-                    .up()
-                .up()
-             .up()
-           .up()
-          // Totais
-           .ele('total')
-             .ele('ICMSTot')
-               .ele('vBC').txt('0.00').up()
-               .ele('vICMS').txt('0.00').up()
-               .ele('vICMSDeson').txt('0.00').up()
-               .ele('vFCP').txt('0.00').up()
-               .ele('vBCST').txt('0.00').up()
-               .ele('vST').txt('0.00').up()
-               .ele('vFCPST').txt('0.00').up()
-               .ele('vFCPSTRet').txt('0.00').up()
-               .ele('vProd').txt(Number(sale.total).toFixed(2)).up() 
-               .ele('vFrete').txt('0.00').up()
-               .ele('vSeg').txt('0.00').up()
-               .ele('vDesc').txt('0.00').up()
-               .ele('vII').txt('0.00').up()
-               .ele('vIPI').txt('0.00').up()
-               .ele('vIPIDevol').txt('0.00').up()
-               .ele('vPIS').txt('0.00').up()
-               .ele('vCOFINS').txt('0.00').up()
-               .ele('vOutro').txt('0.00').up()
-               .ele('vNF').txt(Number(sale.total).toFixed(2)).up()
-             .up()
-           .up() 
-           // Pagamento
-           .ele('transp')
-              .ele('modFrete').txt('9').up()
-           .up()
-           .ele('pag')
-             .ele('detPag')
-               .ele('tPag').txt('01').up() // 01=Dinheiro
-               .ele('vPag').txt(Number(sale.total).toFixed(2)).up()
-             .up()
-           .up()
-        .up()
-      .up();
+        // Root Element
+        const root = create({ version: '1.0', encoding: 'UTF-8' })
+          .ele('NFe', { xmlns: 'http://www.portalfiscal.inf.br/nfe' })
+          .ele('infNFe', { Id: `NFe${accessKey}`, versao: '4.00' });
+        
+        console.log("[DEBUG] Root created");
+
+    // 1. Identificação
+    root.ele('ide')
+        .ele('cUF').txt(company.ibge ? company.ibge.substring(0, 2) : '43').up() // 43 = RS
+        .ele('cNF').txt(accessKey.substring(35, 43)).up()
+        .ele('natOp').txt('VENDA AO CONSUMIDOR').up()
+        .ele('mod').txt('65').up()
+        .ele('serie').txt(String(company.serieNfce)).up()
+        .ele('nNF').txt(String(company.numeroInicialNfce)).up()
+        .ele('dhEmi').txt(new Date().toISOString()).up()
+        .ele('tpNF').txt('1').up()
+        .ele('idDest').txt('1').up()
+        .ele('cMunFG').txt(company.ibge || '4314902').up()
+        .ele('tpImp').txt('4').up()
+        .ele('tpEmis').txt('1').up()
+        .ele('cDV').txt(accessKey.substring(43, 44)).up()
+        .ele('tpAmb').txt(ambiente).up()
+        .ele('finNFe').txt('1').up()
+        .ele('indFinal').txt('1').up()
+        .ele('indPres').txt('1').up()
+        .ele('procEmi').txt('0').up()
+        .ele('verProc').txt('1.0.0').up()
+    .up();
+
+    // 2. Emitente
+    const emit = root.ele('emit');
+    emit.ele('CNPJ').txt(company.cnpj.replace(/\D/g, '')).up();
+    emit.ele('xNome').txt(company.razaoSocial.substring(0, 60)).up();
     
+    const enderEmit = emit.ele('enderEmit');
+    enderEmit.ele('xLgr').txt(company.endereco || 'Rua Teste').up();
+    enderEmit.ele('nro').txt('123').up();
+    enderEmit.ele('xBairro').txt('Centro').up();
+    enderEmit.ele('cMun').txt(company.ibge || '4314902').up();
+    enderEmit.ele('xMun').txt('Porto Alegre').up();
+    enderEmit.ele('UF').txt('RS').up();
+    enderEmit.ele('CEP').txt('90000000').up(); // TODO: Adicionar CEP na empresa
+    enderEmit.ele('cPais').txt('1058').up();
+    enderEmit.ele('xPais').txt('BRASIL').up();
+    
+    emit.ele('IE').txt(company.ie || '').up();
+
+    // 3. Itens (Loop Real)
+    // Se não tiver itens, isso vai dar erro de validação depois, mas ok.
+    const itens = sale.itens || [];
+    itens.forEach((item, index) => {
+        const prod = item.product || {};
+        const nItem = index + 1;
+        // Assegurar casas decimais corretas
+        const qCom = Number(item.quantidade).toFixed(4);
+        const vUnCom = Number(item.precoUnitario).toFixed(10);
+        const vProd = Number(item.subtotal || (item.quantidade * item.precoUnitario)).toFixed(2);
+        
+        const det = root.ele('det', { nItem: String(nItem) });
+        
+        // Produto
+        const prodEle = det.ele('prod');
+        prodEle.ele('cProd').txt(String(prod.id || item.productId || index)).up();
+        prodEle.ele('cEAN').txt(prod.ean || 'SEM GTIN').up();
+        prodEle.ele('xProd').txt((prod.nome || item.nomeProduto || 'Produto').substring(0, 120)).up();
+        prodEle.ele('NCM').txt(prod.ncm || '00000000').up(); // Agora usa NCM real
+        prodEle.ele('CFOP').txt(prod.cfop || '5102').up();
+        prodEle.ele('uCom').txt('UN').up();
+        prodEle.ele('qCom').txt(qCom).up();
+        prodEle.ele('vUnCom').txt(vUnCom).up();
+        prodEle.ele('vProd').txt(vProd).up();
+        prodEle.ele('cEANTrib').txt('SEM GTIN').up();
+        prodEle.ele('uTrib').txt('UN').up();
+        prodEle.ele('qTrib').txt(qCom).up();
+        prodEle.ele('vUnTrib').txt(vUnCom).up();
+        prodEle.ele('indTot').txt('1').up();
+
+        // Impostos
+        const imposto = det.ele('imposto');
+        const icms = imposto.ele('ICMS');
+        // Simples Nacional (CSOSN)
+        const icmsSn = icms.ele('ICMSSN102');
+        icmsSn.ele('orig').txt(String(prod.origem || '0')).up();
+        icmsSn.ele('CSOSN').txt(String(prod.csosn || '102')).up();
+
+        const pis = imposto.ele('PIS').ele('PISOutr');
+        pis.ele('CST').txt('99').up();
+        pis.ele('vBC').txt('0.00').up();
+        pis.ele('pPIS').txt('0.00').up();
+        pis.ele('vPIS').txt('0.00').up();
+
+        const cofins = imposto.ele('COFINS').ele('COFINSOutr');
+        cofins.ele('CST').txt('99').up();
+        cofins.ele('vBC').txt('0.00').up();
+        cofins.ele('pCOFINS').txt('0.00').up();
+        cofins.ele('vCOFINS').txt('0.00').up();
+    });
+
+    // 4. Totais
+    const vNF = Number(sale.total).toFixed(2);
+    const total = root.ele('total');
+    const icmsTot = total.ele('ICMSTot');
+    icmsTot.ele('vBC').txt('0.00').up();
+    icmsTot.ele('vICMS').txt('0.00').up();
+    icmsTot.ele('vICMSDeson').txt('0.00').up();
+    icmsTot.ele('vFCP').txt('0.00').up();
+    icmsTot.ele('vBCST').txt('0.00').up();
+    icmsTot.ele('vST').txt('0.00').up();
+    icmsTot.ele('vFCPST').txt('0.00').up();
+    icmsTot.ele('vFCPSTRet').txt('0.00').up();
+    icmsTot.ele('vProd').txt(vNF).up();
+    icmsTot.ele('vFrete').txt('0.00').up();
+    icmsTot.ele('vSeg').txt('0.00').up();
+    icmsTot.ele('vDesc').txt('0.00').up();
+    icmsTot.ele('vII').txt('0.00').up();
+    icmsTot.ele('vIPI').txt('0.00').up();
+    icmsTot.ele('vIPIDevol').txt('0.00').up();
+    icmsTot.ele('vPIS').txt('0.00').up();
+    icmsTot.ele('vCOFINS').txt('0.00').up();
+    icmsTot.ele('vOutro').txt('0.00').up();
+    icmsTot.ele('vNF').txt(vNF).up();
+
+    // 5. Transporte
+    root.ele('transp').ele('modFrete').txt('9').up().up();
+
+    // 6. Pagamento
+    const pag = root.ele('pag');
+    const detPag = pag.ele('detPag');
+    detPag.ele('tPag').txt('01').up(); // Dinheiro (Default)
+    detPag.ele('vPag').txt(vNF).up();
+
     return {
-        xmlContent: xml.end({ prettyPrint: true }),
+        xmlContent: root.end({ prettyPrint: true }),
         accessKey: accessKey
     };
-  }
+    } catch (e) {
+        console.error("[ERROR] buildXML falhou:", e);
+        throw e;
+    }
+    }
 
   generateAccessKey(sale, company) {
     const cUF = company.ibge ? company.ibge.substring(0, 2) : '43'; // 43 = RS
