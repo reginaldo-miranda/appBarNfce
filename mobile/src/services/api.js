@@ -583,6 +583,7 @@ export const saleService = {
   getById: (id) => api.get(`/sale/${id}`),
   getByMesa: (mesaId) => api.get(`/sale/mesa/${mesaId}`),
   update: (id, data) => api.put(`/sale/${id}/update`, data),
+  updateDelivery: (id, data) => api.put(`/sale/${id}/update`, data),
 };
 
 export const mesaService = {

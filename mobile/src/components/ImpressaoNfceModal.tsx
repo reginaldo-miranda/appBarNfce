@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, Modal, TouchableOpacity, ActivityIndicator, Linking, Image } from 'react-native';
+import { View, Text, StyleSheet, Modal, TouchableOpacity, ActivityIndicator, Linking, Image, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 interface Props {
@@ -16,6 +16,16 @@ export default function ImpressaoNfceModal({ visible, onClose, status, message, 
       Linking.openURL(nfceData.urlConsulta);
     }
   };
+
+  // Auto-print (Auto-open PDF) when success
+  React.useEffect(() => {
+    if (status === 'success' && nfceData?.pdfUrl) {
+       // Pequeno delay para garantir que o modal renderizou
+       setTimeout(() => {
+           Linking.openURL(nfceData.pdfUrl);
+       }, 500);
+    }
+  }, [status, nfceData]);
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
@@ -60,7 +70,11 @@ export default function ImpressaoNfceModal({ visible, onClose, status, message, 
                   <View style={styles.actions}>
                     {nfceData?.pdfUrl && (
                         <TouchableOpacity style={[styles.actionButton, { backgroundColor: '#FF9800' }]} onPress={() => {
-                            Linking.openURL(nfceData.pdfUrl);
+                            if (Platform.OS === 'web') {
+                                window.open(nfceData.pdfUrl, '_blank');
+                            } else {
+                                Linking.openURL(nfceData.pdfUrl);
+                            }
                         }}>
                         <Ionicons name="print" size={20} color="#fff" />
                         <Text style={styles.actionText}>Imprimir Cupom (PDF)</Text>

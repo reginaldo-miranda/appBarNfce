@@ -244,7 +244,7 @@ const DeliveryDetailsModal: React.FC<DeliveryDetailsModalProps> = ({
                         </TouchableOpacity>
                     </View>
 
-                    <ScrollView contentContainerStyle={{ padding: 16 }}>
+                    <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingBottom: 100 }}>
                         
                         {/* Toggle Mode */}
                         <View style={styles.toggleRow}>
@@ -679,9 +679,8 @@ const DeliveryDetailsModal: React.FC<DeliveryDetailsModalProps> = ({
                             </View>
                         )}
 
-                    </ScrollView>
 
-                    {/* Footer Actions */}
+                    {/* Footer Actions (Moved inside ScrollView) */}
                     <View style={styles.footer}>
                         <TouchableOpacity style={styles.cancelButton} onPress={onClose}>
                             <Text style={styles.cancelButtonText}>Voltar</Text>
@@ -699,6 +698,9 @@ const DeliveryDetailsModal: React.FC<DeliveryDetailsModalProps> = ({
                             </TouchableOpacity>
                         )}
                     </View>
+
+                    </ScrollView>
+
                 </View>
             </View>
             
@@ -770,29 +772,29 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        padding: 16,
+        padding: 8, // Compact
         borderBottomWidth: 1,
         borderBottomColor: '#eee'
     },
     title: {
-        fontSize: 18,
+        fontSize: 16,
         fontWeight: 'bold',
         color: '#333'
     },
     closeButton: {
-        padding: 5
+        padding: 4
     },
     toggleRow: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        marginBottom: 20,
+        marginBottom: 6,
         backgroundColor: '#f8f9fa',
-        padding: 12,
+        padding: 8,
         borderRadius: 8
     },
     label: {
-        fontSize: 16,
+        fontSize: 14,
         fontWeight: '500', 
         color: '#333'
     },
@@ -801,106 +803,111 @@ const styles = StyleSheet.create({
         borderRadius: 8,
         borderWidth: 1,
         borderColor: '#e0e0e0',
-        marginBottom: 20
+        marginBottom: 8
     },
     selectorItem: {
         flexDirection: 'row',
         alignItems: 'center',
-        padding: 12,
+        padding: 8,
         borderBottomWidth: 1,
         borderBottomColor: '#eee'
     },
     selectorItemNoBorder: {
         flexDirection: 'row',
         alignItems: 'center',
-        padding: 12
+        padding: 8
     },
     selectorLabel: {
-        fontSize: 12,
+        fontSize: 11,
         color: '#888'
     },
     selectorValue: {
-        fontSize: 16,
+        fontSize: 14,
         fontWeight: '500',
         color: '#333'
     },
     sectionTitle: {
-        fontSize: 14,
+        fontSize: 13,
         fontWeight: 'bold',
         color: '#666',
-        marginBottom: 8,
-        marginTop: 10
+        marginBottom: 4, 
+        marginTop: 6
     },
     placesInput: {
-        height: 44,
+        height: 36,
         color: '#333',
-        fontSize: 16,
+        fontSize: 14,
         backgroundColor: '#f0f0f0',
-        paddingHorizontal: 10,
+        paddingHorizontal: 8,
         borderRadius: 6
     },
     webAddressContainer: {
         flexDirection: 'row',
-        gap: 10,
-        marginBottom: 10
+        gap: 6,
+        marginBottom: 6,
+        alignItems: 'center'
     },
     webInput: {
         flex: 1,
-        height: 44,
+        height: 36,
         borderWidth: 1,
         borderColor: '#ddd',
         borderRadius: 6,
-        paddingHorizontal: 12,
-        backgroundColor: '#fff'
+        paddingHorizontal: 8,
+        backgroundColor: '#fff',
+        fontSize: 13
     },
     webSearchButton: {
         backgroundColor: '#2196F3',
         justifyContent: 'center',
-        paddingHorizontal: 16,
+         height: 36,
+        paddingHorizontal: 10,
         borderRadius: 6
     },
     webSearchButtonText: {
         color: '#fff',
-        fontWeight: 'bold'
+        fontWeight: 'bold',
+        fontSize: 12
     },
     mapContainer: {
-        height: 150,
+        height: 100,
         borderRadius: 8,
         overflow: 'hidden',
-        marginTop: 10,
-        marginBottom: 10
+        marginTop: 4,
+        marginBottom: 6
     },
     infoRow: {
         flexDirection: 'row',
-        gap: 10,
-        marginBottom: 20
+        gap: 6,
+        marginBottom: 8
     },
     infoBox: {
         flex: 1,
         backgroundColor: '#f8f9fa',
-        padding: 12,
+        padding: 6,
         borderRadius: 8,
         alignItems: 'center'
     },
     infoLabel: {
-        fontSize: 12,
-        color: '#666'
+        fontSize: 11,
+        color: '#666',
+        marginBottom: 0
     },
     infoValue: {
-        fontSize: 16,
+        fontSize: 14,
         fontWeight: 'bold',
         color: '#2196F3'
     },
     footer: {
         flexDirection: 'row',
-        padding: 16,
+        padding: 10,
         borderTopWidth: 1,
         borderTopColor: '#eee',
-        gap: 10
+        gap: 8
     },
     cancelButton: {
         flex: 1,
-        padding: 14,
+        padding: 10,
         alignItems: 'center',
         justifyContent: 'center',
         backgroundColor: '#f5f5f5',
@@ -912,7 +919,7 @@ const styles = StyleSheet.create({
     },
     confirmButton: {
         flex: 2,
-        padding: 14,
+        padding: 10,
         alignItems: 'center',
         justifyContent: 'center',
         backgroundColor: '#FF9800',

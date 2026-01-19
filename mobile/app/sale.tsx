@@ -1242,6 +1242,8 @@ export default function SaleScreen() {
       {!isViewMode && cart.length > 0 && (
         <View style={{ gap: 10, padding: 16 }}>
              {/* Botão Delivery */}
+             {/* Botão Delivery - Apenas para Balcão (Sem mesa, sem comanda) */}
+             {(!mesaId && tipo !== 'comanda' && tipo !== 'mesa') && (
              <TouchableOpacity
                 style={{
                     backgroundColor: isDelivery ? '#FF9800' : '#fff',
@@ -1268,6 +1270,7 @@ export default function SaleScreen() {
                     {isDelivery ? 'Configurar Entrega' : 'Vender como Delivery'}
                 </Text>
              </TouchableOpacity>
+             )}
 
             {/* Botão Finalizar Balcão (se não for delivery) */}
             {!isDelivery && (
@@ -1411,6 +1414,7 @@ export default function SaleScreen() {
             loading={loading}
             GOOGLE_API_KEY={GOOGLE_API_KEY}
             onConfirm={async (emitirNfce: boolean) => {
+
                 // Copied updated logic with recovery
                 if(!deliveryAddress) { 
                     Platform.OS === 'web' ? window.alert('Endereço obrigatório') : Alert.alert('Erro', 'Endereço obrigatório'); 
@@ -1423,12 +1427,16 @@ export default function SaleScreen() {
                     // Robust handling of ID
                     let currentSaleId = sale?._id || (sale?.id ? String(sale?.id) : undefined);
 
-                    // Auto-recovery
+                    // 1. Atualiza dados de delivery no backend PRIMEIRO
+
+
+                    // Auto-recovery: Se não tem ID de venda mas tem itens, cria agora
                     if (!currentSaleId && cart.length > 0) {
                         try {
                             const createRes = await saleService.create({ type: 'balcao' });
                             if (createRes.data && (createRes.data._id || createRes.data.id)) {
                                 currentSaleId = createRes.data._id || String(createRes.data.id);
+                                // Adiciona itens
                                 for (const item of cart) {
                                     const pId = item.productId || (item.produto && (item.produto._id || item.produto.id));
                                     if (pId) {
@@ -1438,108 +1446,73 @@ export default function SaleScreen() {
                                         });
                                     }
                                 }
+                                // Atualiza estado local
+                                const freshSale = await saleService.getById(currentSaleId);
+                                setSale(freshSale.data);
                             }
-                        } catch (syncErr) { console.error(syncErr); }
+                        } catch (syncErr) { console.error('Auto-recovery falhou', syncErr); }
                     }
 
                     if (!currentSaleId) {
-                        const msg = 'Erro: Venda não inicializada';
+                        const msg = 'Venda não inicializada.';
                         Platform.OS === 'web' ? window.alert(msg) : Alert.alert('Erro', msg);
                         setLoading(false);
                         return;
                     }
-                    
-                    // Helper to parse BR numbers
-                    const toNum = (v: any) => {
-                        if (typeof v === 'string') return Number(v.replace(',', '.'));
-                        return Number(v);
-                    };
 
-                    await saleService.update(currentSaleId, {
-                        isDelivery: true,
-                        deliveryAddress,
-                        deliveryDistance: toNum(deliveryDistance),
-                        deliveryFee: toNum(deliveryFee),
-                        clienteId: selectedCliente?.id,
-                        entregadorId: selectedEntregador?.id,
-                        deliveryStatus: 'pending' 
-                    });
-                     
-                    // Tentar emitir NFC-e se marcado
-                    let nfceStatusMsg = '';
-                    let nfcePdfUrl = '';
-
-                    if (emitirNfce) {
-                         try {
-                              const nfceRes = await NfceService.emitir(currentSaleId);
-                              if (nfceRes.success || nfceRes.status === 'AUTORIZADA') {
-                                   nfceStatusMsg = 'NFC-e Emitida!';
-                                   if (nfceRes.pdfUrl) {
-                                        nfcePdfUrl = nfceRes.pdfUrl;
-                                   } else if (nfceRes.nfce?.pdfUrl) {
-                                        nfcePdfUrl = nfceRes.nfce.pdfUrl;
-                                   }
-                              } else {
-                                   nfceStatusMsg = 'Erro na NFC-e.';
-                              }
-                         } catch (errNfce: any) {
-                              console.error('Erro ao emitir NFC-e no delivery:', errNfce);
-                              nfceStatusMsg = 'Falha NFC-e.';
-                         }
+                    // 1. Atualiza dados de delivery no backend PRIMEIRO
+                    if (currentSaleId) {
+                        await saleService.updateDelivery(currentSaleId, {
+                            isDelivery: true,
+                            deliveryAddress,
+                            deliveryDistance,
+                            deliveryFee,
+                            // Se tem cliente selecionado, vincula ele
+                            clienteId: selectedCliente?.id || selectedCliente?._id,
+                            entregadorId: selectedEntregador?.id || selectedEntregador?._id,
+                            funcionarioId: user?.id
+                        });
                     }
 
-                    // Se tiver URL válida da NFC-e, abre ela (Cupom Fiscal Oficial)
-                    if (nfcePdfUrl) {
-                        if (Platform.OS === 'web') {
-                            window.open(nfcePdfUrl, '_blank');
-                        } else {
-                            Linking.openURL(nfcePdfUrl);
-                        }
+                    // 2. Fluxo Dividido
+                    if (emitirNfce) {
+                        // CASO SIM: Abrir tela de fechamento (Pagamento)
+                        setDeliveryModalVisible(false);
+                        setModalVisible(true); // Abre modal de fechamento padrão
+                        
                     } else {
-                        // Se não, usa o cupom de entrega padrão (sem valor fiscal)
+                        // CASO NÃO: Finalizar e Imprimir Cupom de Entrega Apenas
+                        
+                        // Finaliza venda (atualiza status e fecha)
+                        await saleService.finalize(currentSaleId, {
+                            formaPagamento: 'diversos', 
+                            total: totalItems + deliveryFee
+                        });
+                        
+                        // Imprime Cupom de Entrega
                         try {
-                            const printRes = await api.post(`/sale/${currentSaleId}/delivery-print`);
-                            if (printRes.data && printRes.data.pdfMode && printRes.data.content) {
-                                if (Platform.OS === 'web') {
-                                    const params = `scrollbars=no,resizable=no,status=no,location=no,toolbar=no,menubar=no,width=400,height=600,left=100,top=100`;
-                                    const win = (window as any).open('', '_blank', params);
-                                    if (win) {
-                                        win.document.write(`
-                                            <html>
-                                            <head>
-                                                <title>Imprimir Comanda</title>
-                                                <style>
-                                                    body { font-family: monospace; font-size: 12px; margin: 0; padding: 10px; }
-                                                    pre { white-space: pre-wrap; word-break: break-all; }
-                                                    @media print { @page { margin: 0; } body { margin: 0.5cm; } }
-                                                </style>
-                                            </head>
-                                            <body>
-                                            <div style="font-weight:bold; margin-bottom:10px;">${nfceStatusMsg ? nfceStatusMsg : ''}</div>
-                                            <pre>${printRes.data.content}</pre>
-                                            <script>
-                                                setTimeout(() => { window.print(); window.close(); }, 500);
-                                            </script>
-                                            </body>
-                                            </html>
-                                        `);
-                                        win.document.close();
-                                    }
-                                }
+                            const sid = currentSaleId;
+                            const printRes = await api.post(`/sale/${sid}/delivery-print`);
+                            if (printRes.data && printRes.data.content) {
+                                printHtmlContent(printRes.data.content);
                             }
                         } catch (e) {
-                             console.error('Erro ao gerar impressao delivery', e);
+                            console.error('Erro impressão entrega:', e);
+                            const msg = 'Falha ao imprimir comprovante de entrega.';
+                            Platform.OS === 'web' ? window.alert(msg) : Alert.alert('Erro', msg);
                         }
+
+                        setDeliveryModalVisible(false);
+                        router.replace('/delivery-dashboard'); 
+                        const sucMsg = 'Entrega lançada com sucesso!';
+                        Platform.OS === 'web' ? console.log(sucMsg) : Alert.alert('Sucesso', sucMsg);
                     }
 
-                    // Navegar sem travar com Alert
-                    setDeliveryModalVisible(false);
-                    router.replace('/delivery-dashboard'); 
-                    
+
+
                 } catch(e: any) {
-                    const msg = e.response?.data?.error || e.response?.data?.message || e.message || 'Erro desconhecido';
-                    console.error('Launch Error:', e);
-                    Platform.OS === 'web' ? window.alert('Erro: ' + msg) : Alert.alert('Erro', msg);
+                    const msg = e.response?.data?.error || e.message || 'Erro ao processar delivery';
+                    Platform.OS === 'web' ? window.alert(msg) : Alert.alert('Erro', msg);
                 } finally {
                     setLoading(false);
                 }
@@ -1670,11 +1643,34 @@ export default function SaleScreen() {
                  finalizeSale({ silent: true, skipNavigation: true }).then(() => {
                     const sid = String((sale as any).id || (sale as any)._id);
                     // Pequeno delay para garantir que o modal split fechou e estado limpou
-                    setTimeout(() => handleEmitNfce(sid), 200);
+                    setTimeout(() => {
+                        handleEmitNfce(sid).then(() => {
+                            // SE FOR DELIVERY, imprimimos o cupom de entrega APÓS a tentativa de NFC-e
+                            if (isDelivery) {
+                                // Pequeno delay e imprime
+                                setTimeout(async () => {
+                                    try {
+                                        const printRes = await api.post(`/sale/${sid}/delivery-print`);
+                                        if (printRes.data && printRes.data.content) {
+                                            printHtmlContent(printRes.data.content);
+                                        }
+                                    } catch(e) { console.error('Erro delivery print pos-nfce', e); }
+                                }, 1000);
+                            }
+                        });
+                    }, 200);
                  });
              } else {
                  // Comportamento padrão: finaliza e volta
                  finalizeSale({ silent: true });
+                 
+                 // Se for delivery mas o usuario NÃO quis NFC-e aqui (mas talvez tenha vindo do fluxo SIM -> Pagamento -> mas mudou ideia?)
+                 // Não, se ele veio do fluxo SIM, ele marcou wantNfce no split.
+                 // Mas se ele veio do fluxo convencional e pagou? 
+                 // Se isDelivery for true, sempre imprimimos entrega ao finalizar?
+                 // O fluxo NÃO já foi tratado no onConfirm. 
+                 // Portanto, aqui é só se ele veio do botão "Finalizar" normal E acabou sendo delivery (o que nao deve acontecer se o botão sumiu)
+                 // O único caso é: Fluxo SIM -> Modal Pagamento -> Finalizou com NFC-e
              }
            }
         }}
@@ -1871,10 +1867,35 @@ export default function SaleScreen() {
   );
 }
 
+// Helper para imprimir HTML
+const printHtmlContent = (html: string) => {
+    if (Platform.OS === 'web') {
+        // Open a visible new window for the user to see/print/save as PDF
+        const win = window.open('', '_blank', 'width=800,height=600');
+        if (win) {
+            win.document.write(html);
+            win.document.close();
+            // Wait for content to load, then print
+            setTimeout(() => {
+                win.focus();
+                win.print();
+            }, 500);
+        } else {
+             window.alert('Por favor, permita pop-ups para visualizar o comprovante.');
+        }
+    } else {
+        // Para mobile nativo, ideal usar expo-print
+        // import * as Print from 'expo-print';
+        // Print.printAsync({ html });
+        console.log('Impressão nativa pendente de implementação. HTML:', html.substring(0, 50) + '...');
+        Alert.alert('Impressão', 'Conteúdo enviado para impressão.');
+    }
+};
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8f9fa',
+    backgroundColor: '#fff',
   },
   loadingContainer: {
     flex: 1,
@@ -1923,6 +1944,65 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 14,
     opacity: 0.9,
+  },
+  date: {
+    paddingHorizontal: 16,
+    paddingBottom: 10,
+    color: '#666',
+  },
+  cartList: {
+    padding: 16,
+  },
+  cartItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+    alignItems: 'center'
+  },
+  itemInfo: {
+    flex: 1,
+  },
+  itemName: {
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  itemTotal: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#4CAF50',
+  },
+  footer: {
+    padding: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#eee',
+    backgroundColor: '#f9f9f9',
+  },
+  totalContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 20,
+  },
+  totalLabel: {
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  totalValue: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#1976D2',
+  },
+  button: {
+    backgroundColor: '#4CAF50',
+    padding: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  buttonText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: 'bold',
   },
   finalizeButton: {
     backgroundColor: '#4CAF50',
@@ -2057,6 +2137,7 @@ const styles = StyleSheet.create({
       marginBottom: 0
   },
   deliveryTitle: { fontSize: 16, fontWeight: 'bold', color: '#333' },
+  deliveryText: { color: '#666', fontSize: 13, marginTop: 4 },
   deliveryContent: { marginTop: 16 },
   label: { fontSize: 14, color: '#666', marginBottom: 4 },
   placesInput: {
@@ -2097,4 +2178,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
 });
+
+
 
