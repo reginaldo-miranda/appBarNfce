@@ -42,7 +42,7 @@ interface DeliveryDetailsModalProps {
     user: any; // attendant
 
     // Actions
-    onConfirm: () => void;
+    onConfirm: (emitirNfce: boolean) => void;
     loading: boolean;
     
     // Config
@@ -76,6 +76,9 @@ const DeliveryDetailsModal: React.FC<DeliveryDetailsModalProps> = ({
     const [addressListModalVisible, setAddressListModalVisible] = useState(false);
     const [addressList, setAddressList] = useState<any[]>([]);
     const [loadingList, setLoadingList] = useState(false);
+    
+    // State for NFC-e
+    const [emitirNfce, setEmitirNfce] = useState(true);
     
     // ... existing handleCepSearch ...
     
@@ -661,6 +664,21 @@ const DeliveryDetailsModal: React.FC<DeliveryDetailsModalProps> = ({
                             </>
                         )}
 
+                        {isDelivery && (
+                            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 20, backgroundColor: '#E3F2FD', padding: 12, borderRadius: 8 }}>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                    <Ionicons name="receipt-outline" size={24} color="#2196F3" />
+                                    <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#333' }}>Emitir Cupom Fiscal (NFC-e)</Text>
+                                </View>
+                                <Switch
+                                    value={emitirNfce}
+                                    onValueChange={setEmitirNfce}
+                                    trackColor={{ false: "#ccc", true: "#2196F3" }}
+                                    thumbColor={"#fff"}
+                                />
+                            </View>
+                        )}
+
                     </ScrollView>
 
                     {/* Footer Actions */}
@@ -672,7 +690,7 @@ const DeliveryDetailsModal: React.FC<DeliveryDetailsModalProps> = ({
                         {isDelivery && (
                             <TouchableOpacity 
                                 style={[styles.confirmButton, loading && { opacity: 0.7 }]} 
-                                onPress={onConfirm}
+                                onPress={() => onConfirm(emitirNfce)}
                                 disabled={loading}
                             >
                                 <Text style={styles.confirmButtonText}>

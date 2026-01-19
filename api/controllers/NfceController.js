@@ -186,6 +186,14 @@ export const generatePdf = async (req, res) => {
             }
         }
 
+        // Recalcular total baseado nos itens para garantir consistência com o XML
+        const totalVendaCalculada = sale.itens.reduce((acc, item) => {
+            return acc + (Number(item.subtotal) || (Number(item.quantidade) * Number(item.precoUnitario)));
+        }, 0);
+        
+        // Se o total salvo for 0 ou muito diferente, preferimos o calculado (visual apenas)
+        const totalFinal = (Number(sale.total) <= 0.01) ? totalVendaCalculada : Number(sale.total);
+
         const html = `
             <html>
             <head>
@@ -213,7 +221,7 @@ export const generatePdf = async (req, res) => {
                 ${sale.itens.map(item => `
                     <div class="row">
                         <span>${item.quantidade}x ${item.product?.nome || item.nomeProduto}</span>
-                        <span>R$ ${Number(item.subtotal).toFixed(2)}</span>
+                        <span>R$ ${Number(item.subtotal || (item.quantidade * item.precoUnitario)).toFixed(2)}</span>
                     </div>
                 `).join('')}
                 
@@ -224,7 +232,7 @@ export const generatePdf = async (req, res) => {
                 </div>
                 <div class="row bold" style="font-size: 14px">
                     <span>Valor Total R$</span>
-                    <span>${Number(sale.total).toFixed(2)}</span>
+                    <span>${totalFinal.toFixed(2)}</span>
                 </div>
                 <div class="row">
                     <span>Forma de Pagamento</span>
@@ -232,7 +240,7 @@ export const generatePdf = async (req, res) => {
                 </div>
                 <div class="row">
                     <span>Valor Pago R$</span>
-                    <span>${Number(sale.total).toFixed(2)}</span>
+                    <span>${totalFinal.toFixed(2)}</span>
                 </div>
 
                 <div class="divider"></div>

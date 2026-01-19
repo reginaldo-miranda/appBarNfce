@@ -86,13 +86,21 @@ class NfceService {
     // 3. Itens (Loop Real)
     // Se não tiver itens, isso vai dar erro de validação depois, mas ok.
     const itens = sale.itens || [];
+    let totalProdutosCalculado = 0;
+
     itens.forEach((item, index) => {
         const prod = item.product || {};
         const nItem = index + 1;
         // Assegurar casas decimais corretas
-        const qCom = Number(item.quantidade).toFixed(4);
-        const vUnCom = Number(item.precoUnitario).toFixed(10);
-        const vProd = Number(item.subtotal || (item.quantidade * item.precoUnitario)).toFixed(2);
+        const qCom = Number(item.quantidade);
+        const vUnCom = Number(item.precoUnitario);
+        
+        // Calcular vProd (Valor do Produto / Item)
+        // Regra de validação: vProd deve ser qCom * vUnCom (com arredondamentos)
+        const subtotalItem = Number((qCom * vUnCom).toFixed(2));
+        totalProdutosCalculado += subtotalItem;
+        
+        const vProd = subtotalItem.toFixed(2);
         
         const det = root.ele('det', { nItem: String(nItem) });
         
@@ -104,13 +112,13 @@ class NfceService {
         prodEle.ele('NCM').txt(prod.ncm || '00000000').up(); // Agora usa NCM real
         prodEle.ele('CFOP').txt(prod.cfop || '5102').up();
         prodEle.ele('uCom').txt('UN').up();
-        prodEle.ele('qCom').txt(qCom).up();
-        prodEle.ele('vUnCom').txt(vUnCom).up();
+        prodEle.ele('qCom').txt(qCom.toFixed(4)).up();
+        prodEle.ele('vUnCom').txt(vUnCom.toFixed(10)).up();
         prodEle.ele('vProd').txt(vProd).up();
         prodEle.ele('cEANTrib').txt('SEM GTIN').up();
         prodEle.ele('uTrib').txt('UN').up();
-        prodEle.ele('qTrib').txt(qCom).up();
-        prodEle.ele('vUnTrib').txt(vUnCom).up();
+        prodEle.ele('qTrib').txt(qCom.toFixed(4)).up();
+        prodEle.ele('vUnTrib').txt(vUnCom.toFixed(10)).up();
         prodEle.ele('indTot').txt('1').up();
 
         // Impostos
@@ -135,7 +143,10 @@ class NfceService {
     });
 
     // 4. Totais
-    const vNF = Number(sale.total).toFixed(2);
+    // IMPORTANTE: vNF deve ser a soma dos itens (vProd) +- descontos/fretes
+    // Se sale.total vier zerado, usamos o calculado. Se vier diferente, usamos o calculado para garantir coerência fiscal.
+    const vNF = totalProdutosCalculado.toFixed(2);
+    
     const total = root.ele('total');
     const icmsTot = total.ele('ICMSTot');
     icmsTot.ele('vBC').txt('0.00').up();
@@ -146,7 +157,7 @@ class NfceService {
     icmsTot.ele('vST').txt('0.00').up();
     icmsTot.ele('vFCPST').txt('0.00').up();
     icmsTot.ele('vFCPSTRet').txt('0.00').up();
-    icmsTot.ele('vProd').txt(vNF).up();
+    icmsTot.ele('vProd').txt(vNF).up(); // vProd global = Soma dos vProd dos itens
     icmsTot.ele('vFrete').txt('0.00').up();
     icmsTot.ele('vSeg').txt('0.00').up();
     icmsTot.ele('vDesc').txt('0.00').up();

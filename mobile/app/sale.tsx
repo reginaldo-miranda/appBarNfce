@@ -1410,7 +1410,7 @@ export default function SaleScreen() {
             user={user}
             loading={loading}
             GOOGLE_API_KEY={GOOGLE_API_KEY}
-            onConfirm={async () => {
+            onConfirm={async (emitirNfce: boolean) => {
                 // Copied updated logic with recovery
                 if(!deliveryAddress) { 
                     Platform.OS === 'web' ? window.alert('Endereço obrigatório') : Alert.alert('Erro', 'Endereço obrigatório'); 
@@ -1464,49 +1464,79 @@ export default function SaleScreen() {
                         entregadorId: selectedEntregador?.id,
                         deliveryStatus: 'pending' 
                     });
-                    
-                    const printRes = await api.post(`/sale/${currentSaleId}/delivery-print`);
-                    
-                    if (printRes.data && printRes.data.pdfMode && printRes.data.content) {
+                     
+                    // Tentar emitir NFC-e se marcado
+                    let nfceStatusMsg = '';
+                    let nfcePdfUrl = '';
+
+                    if (emitirNfce) {
+                         try {
+                              const nfceRes = await NfceService.emitir(currentSaleId);
+                              if (nfceRes.success || nfceRes.status === 'AUTORIZADA') {
+                                   nfceStatusMsg = 'NFC-e Emitida!';
+                                   if (nfceRes.pdfUrl) {
+                                        nfcePdfUrl = nfceRes.pdfUrl;
+                                   } else if (nfceRes.nfce?.pdfUrl) {
+                                        nfcePdfUrl = nfceRes.nfce.pdfUrl;
+                                   }
+                              } else {
+                                   nfceStatusMsg = 'Erro na NFC-e.';
+                              }
+                         } catch (errNfce: any) {
+                              console.error('Erro ao emitir NFC-e no delivery:', errNfce);
+                              nfceStatusMsg = 'Falha NFC-e.';
+                         }
+                    }
+
+                    // Se tiver URL válida da NFC-e, abre ela (Cupom Fiscal Oficial)
+                    if (nfcePdfUrl) {
                         if (Platform.OS === 'web') {
-                            const params = `scrollbars=no,resizable=no,status=no,location=no,toolbar=no,menubar=no,
-width=400,height=600,left=100,top=100`;
-                             const win = (window as any).open('', '_blank', params);
-                             if (win) {
-                                 win.document.write(`
-                                    <html>
-                                    <head>
-                                        <title>Imprimir Comanda</title>
-                                        <style>
-                                            body { font-family: monospace; font-size: 12px; margin: 0; padding: 10px; }
-                                            pre { white-space: pre-wrap; word-break: break-all; }
-                                            @media print { @page { margin: 0; } body { margin: 0.5cm; } }
-                                        </style>
-                                    </head>
-                                    <body>
-                                    <pre>${printRes.data.content}</pre>
-                                    <script>
-                                        setTimeout(() => { window.print(); window.close(); }, 500);
-                                    </script>
-                                    </body>
-                                    </html>
-                                 `);
-                                 win.document.close();
-                             } else {
-                                 window.alert('Pop-up bloqueado. Permita pop-ups para imprimir.');
-                             }
+                            window.open(nfcePdfUrl, '_blank');
                         } else {
-                            Alert.alert('Sucesso', 'Venda salva. Sem impressora configurada.');
+                            Linking.openURL(nfcePdfUrl);
                         }
                     } else {
-                        if (Platform.OS === 'web') window.alert('Entrega lançada!');
-                        else Alert.alert('Sucesso', 'Entrega lançada!');
+                        // Se não, usa o cupom de entrega padrão (sem valor fiscal)
+                        try {
+                            const printRes = await api.post(`/sale/${currentSaleId}/delivery-print`);
+                            if (printRes.data && printRes.data.pdfMode && printRes.data.content) {
+                                if (Platform.OS === 'web') {
+                                    const params = `scrollbars=no,resizable=no,status=no,location=no,toolbar=no,menubar=no,width=400,height=600,left=100,top=100`;
+                                    const win = (window as any).open('', '_blank', params);
+                                    if (win) {
+                                        win.document.write(`
+                                            <html>
+                                            <head>
+                                                <title>Imprimir Comanda</title>
+                                                <style>
+                                                    body { font-family: monospace; font-size: 12px; margin: 0; padding: 10px; }
+                                                    pre { white-space: pre-wrap; word-break: break-all; }
+                                                    @media print { @page { margin: 0; } body { margin: 0.5cm; } }
+                                                </style>
+                                            </head>
+                                            <body>
+                                            <div style="font-weight:bold; margin-bottom:10px;">${nfceStatusMsg ? nfceStatusMsg : ''}</div>
+                                            <pre>${printRes.data.content}</pre>
+                                            <script>
+                                                setTimeout(() => { window.print(); window.close(); }, 500);
+                                            </script>
+                                            </body>
+                                            </html>
+                                        `);
+                                        win.document.close();
+                                    }
+                                }
+                            }
+                        } catch (e) {
+                             console.error('Erro ao gerar impressao delivery', e);
+                        }
                     }
-                    
+
+                    // Navegar sem travar com Alert
                     setDeliveryModalVisible(false);
                     router.replace('/delivery-dashboard'); 
+                    
                 } catch(e: any) {
-                    // Fix: Backend returns { error: '...' }, not message
                     const msg = e.response?.data?.error || e.response?.data?.message || e.message || 'Erro desconhecido';
                     console.error('Launch Error:', e);
                     Platform.OS === 'web' ? window.alert('Erro: ' + msg) : Alert.alert('Erro', msg);
