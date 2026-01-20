@@ -13,7 +13,9 @@ import {
   Modal,
   FlatList,
   ActivityIndicator,
+  Linking,
 } from 'react-native';
+
 import { Ionicons } from '@expo/vector-icons';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
 import { Picker } from '@react-native-picker/picker';
@@ -548,7 +550,19 @@ export default function CadastroProduto() {
     });
   };
 
+  const openGptHelper = () => {
+    const query = nome ? `Qual o NCM do produto: ${nome}?` : 'Qual o NCM do produto...';
+    // Tenta abrir com query param (funciona em alguns contextos/versoes web)
+    // Se nao, abre a home e o usuario digita.
+    const url = `https://chatgpt.com/?q=${encodeURIComponent(query)}`;
+    Linking.openURL(url).catch(err => {
+      Alert.alert('Erro', 'Não foi possível abrir o link.');
+      console.error("Erro ao abrir link", err);
+    });
+  };
+
   const getInputStyle = (fieldName: string) => {
+
     const hasError = hasInteracted[fieldName as keyof typeof hasInteracted] && validationErrors[fieldName as keyof ValidationErrors];
     return [
       styles.input,
@@ -845,7 +859,12 @@ export default function CadastroProduto() {
               </View>
               <View style={styles.row}>
                  <View style={[styles.inputGroup, styles.halfWidth]}>
-                   <Text style={styles.label}>NCM (8 dígitos)</Text>
+                   <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center'}}>
+                       <Text style={styles.label}>NCM (8 dígitos)</Text>
+                       <TouchableOpacity onPress={openGptHelper}>
+                           <Text style={{color: '#2196F3', fontSize: 11, fontWeight: 'bold', marginBottom: 2}}>🤖 Consultar GPT</Text>
+                       </TouchableOpacity>
+                   </View>
                    <TextInput style={styles.input} value={ncm} onChangeText={setNcm} keyboardType="numeric" maxLength={8} placeholder="00000000" />
                  </View>
                  <View style={[styles.inputGroup, styles.halfWidth]}>

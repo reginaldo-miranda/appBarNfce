@@ -66,17 +66,22 @@ export default function SaleScreen() {
     setNfceStatus('loading');
     setNfceMessage('Transmitindo para SEFAZ...');
     try {
-      const res = await NfceService.emitir(saleIdToEmit); // O serviço frontend deve lidar com string/number
-      // Verifica estrutura de resposta
-      // NfceService.ts retorna response.data
-      if (res.success || res.status === 'AUTORIZADA') {
+      const res = await NfceService.emitir(saleIdToEmit); 
+      console.log('[DEBUG] Resposta Emitir NFC-e:', res);
+
+      // Verificação robusta de status (API retorna 'AUTORIZADO' ou 'REJEITADO')
+      const statusRaw = (res.status || '').toUpperCase();
+      const isAuth = statusRaw === 'AUTORIZADO' || statusRaw === 'AUTORIZADA';
+
+      if (res.success || isAuth) {
         setNfceStatus('success');
         setNfceMessage('NFC-e emitida com sucesso!');
-        // Devemos passar a resposta completa (que contém pdfUrl e qrCode), e não apenas o objeto nfce do banco
         setNfceData(res);
       } else {
         setNfceStatus('error');
-        setNfceMessage(res.message || res.error || 'Erro desconhecido na emissão.');
+        // Prioritize 'motivo' from DB/Sefaz, then 'message', then 'error'
+        const reason = res.motivo || res.message || res.error || 'Erro: Nota Rejeitada pela SEFAZ.';
+        setNfceMessage(reason);
       }
     } catch (e: any) {
       console.error('Erro NFC-e:', e);

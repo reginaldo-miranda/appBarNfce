@@ -9,6 +9,8 @@ import QRCode from 'qrcode';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+
+
 export const emitirNfce = async (req, res) => {
     console.log("[DEBUG] Controller: emitirNfce chamado. Body:", req.body);
     try {
@@ -44,7 +46,16 @@ export const emitirNfce = async (req, res) => {
 
         // 3. Enviar para SEFAZ (Mock ou Real)
         // Passando accessKey para garantir que o mock responda com a chave correta
+        // 3. Enviar para SEFAZ (Mock ou Real)
+        // Passando accessKey para garantir que o mock responda com a chave correta
         const sefazResult = await NfceService.sendToSefaz(signedXml, company, accessKey, sale);
+        
+        try {
+            fs.writeFileSync(path.join(__dirname, '../last_sefaz_response.json'), JSON.stringify(sefazResult, null, 2));
+        } catch (e) {
+            console.error("Falha ao salvar log sefaz", e);
+        }
+
 
         // 4. Gerar QR Code
         const qrCodeResult = await NfceService.getQrCode(sefazResult.chave, company, sale);
@@ -68,13 +79,19 @@ export const emitirNfce = async (req, res) => {
                 } catch (e) {
                     console.error(`[ERROR] Falha ao criar diretório configurado ${xmlDir}:`, e);
                     // Fallback para diretório padrão se falhar (ex: permissão)
+
+
+                    // Fallback para diretório padrão se falhar (ex: permissão)
                     xmlDir = path.join(__dirname, '../../xml_nfce');
                 }
             }
         } else {
             // Diretório padrão (sem subpastas por mês, mantendo compatibilidade)
+            // Diretório padrão (sem subpastas por mês, mantendo compatibilidade)
             xmlDir = path.join(__dirname, '../../xml_nfce');
         }
+
+
 
         if (!fs.existsSync(xmlDir)) {
             fs.mkdirSync(xmlDir, { recursive: true });
@@ -92,6 +109,8 @@ export const emitirNfce = async (req, res) => {
         } catch (err) {
             console.error('[ERROR] Erro ao salvar arquivo XML:', err);
         }
+
+
 
         // 5. Salvar na Venda (Upsert Nfce)
         const nfceData = {
@@ -131,6 +150,19 @@ export const emitirNfce = async (req, res) => {
         }
 
         // 6. Preparar resposta completa para o Frontend
+        // 6. Preparar resposta completa para o Frontend
+        const isRejected = savedNfce.status === 'REJEITADA';
+        
+        if (isRejected) {
+             return res.status(400).json({
+                success: false,
+                status: 'REJEITADA',
+                error: `Rejeição: ${savedNfce.motivo || 'Motivo não especificado'}`,
+                message: savedNfce.motivo || 'Nota rejeitada pela SEFAZ',
+                nfce: savedNfce
+             });
+        }
+
         const fullResponse = {
             success: true,
             status: savedNfce.status,

@@ -3,6 +3,9 @@ import prisma from "../lib/prisma.js";
 import multer from 'multer';
 import fs from 'fs';
 import path from 'path';
+import axios from 'axios'; // Ensure axios is imported
+
+
 
 // Configuração do Multer para upload de certificados
 import { fileURLToPath } from 'url';
@@ -56,7 +59,34 @@ router.post("/", async (req, res) => {
   if (data.serieNfce) data.serieNfce = Number(data.serieNfce);
   if (data.numeroInicialNfce) data.numeroInicialNfce = Number(data.numeroInicialNfce);
   if (data.diaVencimento) data.diaVencimento = Number(data.diaVencimento);
-  if (data.diasAtraso) data.diasAtraso = Number(data.diasAtraso);
+  // Helper para conversão segura
+  const toDec = (val) => {
+      if (val === null || val === undefined || val === '') return null;
+      const n = Number(val);
+      return isNaN(n) ? null : n;
+  };
+  const toInt = (val, def = null) => {
+      if (val === null || val === undefined || val === '') return def;
+      const n = Number(val);
+      return isNaN(n) ? def : n;
+  };
+
+  data.valorMensalidade = toDec(data.valorMensalidade);
+  data.serieNfce = toInt(data.serieNfce, 1);
+  data.numeroInicialNfce = toInt(data.numeroInicialNfce, 1);
+  data.diaVencimento = toInt(data.diaVencimento, null);
+  data.diasAtraso = toInt(data.diasAtraso, 0);
+
+  // Garantir que campos de texto sejam strings
+
+
+  // Garantir que campos de texto sejam strings (BrasilAPI retorna números às vezes)
+  if (data.ibge) data.ibge = String(data.ibge);
+  if (data.cnae) data.cnae = String(data.cnae);
+  if (data.cep) data.cep = String(data.cep);
+  if (data.numero) data.numero = String(data.numero);
+  if (data.cnpj) data.cnpj = String(data.cnpj);
+
 
   try {
     // Verifica se já existe
@@ -261,4 +291,54 @@ router.post("/nfce-config", upload.single('certificado'), async (req, res) => {
   }
 });
 
+// GET: Consultar CNPJ na BrasilAPI
+router.get("/cnpj/:cnpj", async (req, res) => {
+  const { cnpj } = req.params;
+  // Remove caracteres não numéricos
+  const cleanCnpj = cnpj.replace(/\D/g, '');
+
+  if (cleanCnpj.length !== 14) {
+    return res.status(400).json({ error: "CNPJ inválido. Deve conter 14 dígitos." });
+  }
+
+  try {
+    console.log(`[CNPJ] Consultando BrasilAPI para: ${cleanCnpj}`);
+    
+    // Usar axios em vez de fetch para garantir compatibilidade
+    const response = await axios.get(`https://brasilapi.com.br/api/cnpj/v1/${cleanCnpj}`);
+    const data = response.data;
+
+    // Mapear dados para o formato do nosso sistema
+    const mappedData = {
+      razaoSocial: data.razao_social,
+      nomeFantasia: data.nome_fantasia || data.razao_social,
+      cnpj: cleanCnpj,
+      logradouro: data.logradouro,
+      numero: data.numero,
+      complemento: data.complemento,
+      bairro: data.bairro,
+      cidade: data.municipio,
+      uf: data.uf,
+      cep: data.cep,
+      ibge: data.codigo_municipio_ibge, // IMPORTANTE: IBGE para NFC-e
+      telefone: data.ddd_telefone_1,
+      cnae: data.cnae_fiscal,
+      dataAbertura: data.data_inicio_atividade
+    };
+
+    console.log(`[CNPJ] Sucesso! IBGE: ${mappedData.ibge}`);
+    res.json(mappedData);
+
+  } catch (error) {
+    console.error("Erro ao consultar CNPJ:", error.message);
+    if (error.response) {
+        console.error("BrasilAPI Response:", error.response.data);
+        if (error.response.status === 404) return res.status(404).json({ error: "CNPJ não encontrado na base pública." });
+    }
+    res.status(500).json({ error: "Erro ao consultar serviço de CNPJ: " + error.message });
+  }
+});
+
+
 export default router;
+

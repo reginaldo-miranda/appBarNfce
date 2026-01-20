@@ -10,7 +10,11 @@ import {
   Switch,
   ActivityIndicator,
   TextInput,
+  Pressable,
+  Platform,
 } from 'react-native';
+
+
 import { SafeIcon } from '../../components/SafeIcon';
 import { employeeService, userService, companyService } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
@@ -95,15 +99,26 @@ export default function AdminConfiguracoesScreen() {
     try {
       setLoadingCompany(true);
       await companyService.save(companyData);
-      Alert.alert('Sucesso', 'Dados da empresa salvos com sucesso!');
+      
+      const msg = 'Dados da empresa salvos com sucesso!';
+      if (Platform.OS === 'web') window.alert(msg);
+      else Alert.alert('Sucesso', msg);
+
       setCompanyModalVisible(false);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Erro ao salvar empresa:', error);
-      Alert.alert('Erro', 'Não foi possível salvar os dados da empresa');
+      // Extrair mensagem real do erro
+      const errorMsg = error.response?.data?.error || error.message || 'Erro desconhecido';
+      const msg = `Não foi possível salvar: ${errorMsg}`;
+      
+      if (Platform.OS === 'web') window.alert(msg);
+      else Alert.alert('Erro', msg);
     } finally {
+
       setLoadingCompany(false);
     }
   };
+
 
   const fetchAddressByCep = async (cep: string) => {
     // Remove caracteres não numéricos
@@ -138,6 +153,65 @@ export default function AdminConfiguracoesScreen() {
         setLoadingCompany(false);
     }
   };
+
+  const handleBuscaCnpj = async () => {
+    // Feedback imediato e robusto para Web
+    if (Platform.OS === 'web') {
+        window.alert("Consultando CNPJ... Aguarde.");
+    } else {
+        Alert.alert("Aguarde", "Consultando CNPJ...");
+    }
+
+    const cnpj = companyData.cnpj?.replace(/\D/g, '');
+
+    if (!cnpj || cnpj.length !== 14) {
+      if (Platform.OS === 'web') window.alert('CNPJ Inválido. Digite 14 números.');
+      else Alert.alert('CNPJ Inválido', 'Digite um CNPJ válido com 14 números.');
+      return;
+    }
+
+    try {
+      setLoadingCompany(true);
+      // Chama o backend que vai atuar como proxy para a BrasilAPI
+      const response = await companyService.consultarCnpj(cnpj);
+      const data = response.data;
+
+      if (data) {
+        setCompanyData((prev: any) => ({
+          ...prev,
+          razaoSocial: data.razaoSocial || prev.razaoSocial,
+          nomeFantasia: data.nomeFantasia || prev.nomeFantasia,
+          logradouro: data.logradouro || prev.logradouro,
+          numero: data.numero || prev.numero,
+          complemento: data.complemento || prev.complemento,
+          bairro: data.bairro || prev.bairro,
+          cidade: data.cidade || prev.cidade,
+          uf: data.uf || prev.uf,
+          cep: data.cep || prev.cep,
+          ibge: data.ibge || prev.ibge, 
+          telefone: data.telefone || prev.telefone,
+          cnae: data.cnae || prev.cnae,
+        }));
+        
+        const msg = "Dados encontrados e preenchidos!";
+        if (Platform.OS === 'web') window.alert(msg);
+        else Alert.alert("Sucesso", msg);
+
+      } else {
+        const msg = "Nenhum dado retornado.";
+        if (Platform.OS === 'web') window.alert(msg);
+        else Alert.alert("Atenção", msg);
+      }
+    } catch (error: any) {
+      console.error("Erro ao buscar CNPJ:", error);
+      const msg = error.response?.data?.error || "Erro ao consultar CNPJ.";
+      if (Platform.OS === 'web') window.alert("Erro: " + msg);
+      else Alert.alert("Erro", msg);
+    } finally {
+      setLoadingCompany(false);
+    }
+  };
+
 
   const handleEditPermissions = (userToEdit: UserPermissions) => {
     setSelectedUser({ ...userToEdit });
@@ -484,16 +558,77 @@ export default function AdminConfiguracoesScreen() {
             <Text style={styles.sectionHeader}>1. Identificação</Text>
             <SimpleInput label="Razão Social *" value={companyData.razaoSocial} onChangeText={(t: string) => setCompanyData({...companyData, razaoSocial: t})} />
             <SimpleInput label="Nome Fantasia *" value={companyData.nomeFantasia} onChangeText={(t: string) => setCompanyData({...companyData, nomeFantasia: t})} />
-            <SimpleInput label="CNPJ *" value={companyData.cnpj} onChangeText={(t: string) => setCompanyData({...companyData, cnpj: t})} keyboardType="numeric" />
+            <View style={{ marginBottom: 16 }}>
+                <Text style={styles.inputLabel}>CNPJ *</Text>
+                <View style={{ flexDirection: 'row', gap: 10 }}>
+                    <View style={{ flex: 1 }}>
+                        <TextInput 
+                            style={styles.inputField}
+                            value={companyData.cnpj} 
+                            onChangeText={(t) => setCompanyData({...companyData, cnpj: t})} 
+                            keyboardType="numeric"
+                            placeholder="00.000.000/0000-00"
+                            maxLength={18}
+                        />
+                    </View>
+                    {Platform.OS === 'web' ? (
+                        // Solução Web: Botão HTML Nativo para garantir clique no Modal
+                        // @ts-ignore
+                        <button 
+                            onClick={(e) => { e.preventDefault(); handleBuscaCnpj(); }}
+                            style={{ 
+                                marginLeft: 4, 
+                                width: 50, 
+                                height: 50, 
+                                backgroundColor: '#4CAF50', 
+                                border: 'none', 
+                                borderRadius: 8, 
+                                cursor: 'pointer',
+                                display: 'flex',
+                                justifyContent: 'center',
+                                alignItems: 'center',
+                                zIndex: 99999
+                            }}
+                        >
+                            <div style={{ pointerEvents: 'none', display: 'flex' }}>
+                                <SafeIcon name="search" size={20} color="#fff" fallbackText="🔍" />
+                            </div>
+                        </button>
+
+                    ) : (
+                        // Solução Native: TouchableOpacity padrão
+                        <TouchableOpacity 
+                            style={{ 
+                                backgroundColor: '#4CAF50', 
+                                justifyContent: 'center', 
+                                alignItems: 'center', 
+                                borderRadius: 8,
+                                width: 50,
+                                height: 50,
+                                marginLeft: 4
+                            }}
+                            onPress={handleBuscaCnpj}
+                        >
+                            <SafeIcon name="search" size={20} color="#fff" fallbackText="🔍" />
+                        </TouchableOpacity>
+                    )}
+
+
+
+
+                </View>
+            </View>
+
             <SimpleInput label="Inscrição Estadual" value={companyData.inscricaoEstadual} onChangeText={(t: string) => setCompanyData({...companyData, inscricaoEstadual: t})} placeholder="Isento se vazio" />
             <SimpleInput label="Inscrição Municipal" value={companyData.inscricaoMunicipal} onChangeText={(t: string) => setCompanyData({...companyData, inscricaoMunicipal: t})} />
 
             <Text style={styles.sectionHeader}>2. Endereço Fiscal</Text>
             <View style={{ marginBottom: 12 }}>
-                <Text style={styles.inputLabel}>CEP</Text>
+                <Text style={styles.inputLabel}>CEP *</Text>
                 <View style={{ flexDirection: 'row', gap: 10 }}>
                     <View style={{ flex: 1 }}>
                         <TextInput 
+ 
                             style={styles.inputField}
                             value={companyData.cep} 
                             onChangeText={(t) => setCompanyData({...companyData, cep: t})} 
@@ -510,17 +645,18 @@ export default function AdminConfiguracoesScreen() {
                     </TouchableOpacity>
                 </View>
             </View>
-            <SimpleInput label="Logradouro" value={companyData.logradouro} onChangeText={(t: string) => setCompanyData({...companyData, logradouro: t})} />
+            <SimpleInput label="Logradouro *" value={companyData.logradouro} onChangeText={(t: string) => setCompanyData({...companyData, logradouro: t})} />
             <View style={{flexDirection: 'row', gap: 10}}>
-                <View style={{flex: 1}}><SimpleInput label="Número" value={companyData.numero} onChangeText={(t: string) => setCompanyData({...companyData, numero: t})} /></View>
-                <View style={{flex: 2}}><SimpleInput label="Bairro" value={companyData.bairro} onChangeText={(t: string) => setCompanyData({...companyData, bairro: t})} /></View>
+                <View style={{flex: 1}}><SimpleInput label="Número *" value={companyData.numero} onChangeText={(t: string) => setCompanyData({...companyData, numero: t})} /></View>
+                <View style={{flex: 2}}><SimpleInput label="Bairro *" value={companyData.bairro} onChangeText={(t: string) => setCompanyData({...companyData, bairro: t})} /></View>
             </View>
             <SimpleInput label="Complemento" value={companyData.complemento} onChangeText={(t: string) => setCompanyData({...companyData, complemento: t})} />
             <View style={{flexDirection: 'row', gap: 10}}>
-                <View style={{flex: 2}}><SimpleInput label="Cidade" value={companyData.cidade} onChangeText={(t: string) => setCompanyData({...companyData, cidade: t})} /></View>
-                <View style={{flex: 1}}><SimpleInput label="UF" value={companyData.uf} onChangeText={(t: string) => setCompanyData({...companyData, uf: t})} maxLength={2} /></View>
+                <View style={{flex: 2}}><SimpleInput label="Cidade *" value={companyData.cidade} onChangeText={(t: string) => setCompanyData({...companyData, cidade: t})} /></View>
+                <View style={{flex: 1}}><SimpleInput label="UF *" value={companyData.uf} onChangeText={(t: string) => setCompanyData({...companyData, uf: t})} maxLength={2} /></View>
             </View>
-            <SimpleInput label="Cód. Município IBGE" value={companyData.ibge} onChangeText={(t: string) => setCompanyData({...companyData, ibge: t})} keyboardType="numeric" />
+            <SimpleInput label="Cód. Município IBGE *" value={companyData.ibge} onChangeText={(t: string) => setCompanyData({...companyData, ibge: t})} keyboardType="numeric" />
+
 
             <Text style={styles.sectionHeader}>3. Contato</Text>
             <SimpleInput label="Telefone Principal" value={companyData.telefone} onChangeText={(t: string) => setCompanyData({...companyData, telefone: t})} keyboardType="phone-pad" />
