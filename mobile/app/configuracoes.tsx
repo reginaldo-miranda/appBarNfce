@@ -17,7 +17,7 @@ import { useRouter } from 'expo-router';
 import ScreenIdentifier from '../src/components/ScreenIdentifier';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS, getSecureItem, setSecureItem } from '../src/services/storage';
-import { testApiConnection, API_URL } from '../src/services/api';
+import { testApiConnection, API_URL, printerService } from '../src/services/api';
 import { scanWifiNetworks, connectToWifi, isWifiConnectionRealPossible } from '../src/services/wifi';
 import { SafeIcon } from '../components/SafeIcon';
 import * as DocumentPicker from 'expo-document-picker';
@@ -29,8 +29,17 @@ export default function ConfiguracoesScreen() {
   // API
   const [apiUrl, setApiUrl] = useState('');
   const [apiKey, setApiKey] = useState('');
+  const [googleMapsKey, setGoogleMapsKey] = useState('');
   const [testing, setTesting] = useState(false);
   const [testStatus, setTestStatus] = useState<null | { ok: boolean; message: string }>(null);
+
+  // Printers
+  const [printers, setPrinters] = useState<any[]>([]);
+  const [loadingPrinters, setLoadingPrinters] = useState(false);
+  const [printerModalVisible, setPrinterModalVisible] = useState(false);
+  const [newPrinterName, setNewPrinterName] = useState('');
+  const [newPrinterAddress, setNewPrinterAddress] = useState('');
+  const [savingPrinter, setSavingPrinter] = useState(false);
 
   // WiFi
   const [wifiModalVisible, setWifiModalVisible] = useState(false);
@@ -70,12 +79,14 @@ export default function ConfiguracoesScreen() {
       try {
         const storedUrl = await AsyncStorage.getItem(STORAGE_KEYS.API_BASE_URL);
         const storedKey = await getSecureItem(STORAGE_KEYS.API_AUTH_KEY);
+        const storedMapKey = await getSecureItem(STORAGE_KEYS.GOOGLE_MAPS_KEY);
         const storedSsid = await getSecureItem(STORAGE_KEYS.WIFI_SSID);
         const storedPwd = await getSecureItem(STORAGE_KEYS.WIFI_PASSWORD);
         const savedTimeoutStr = await AsyncStorage.getItem(STORAGE_KEYS.API_TIMEOUT_MS);
         if (storedUrl) setApiUrl(storedUrl);
         if (!storedUrl) setApiUrl(API_URL);
         if (storedKey) setApiKey(storedKey);
+        if (storedMapKey) setGoogleMapsKey(storedMapKey);
         if (storedSsid) setSelectedSSID(storedSsid);
         if (storedPwd) setWifiPassword(storedPwd);
         if (savedTimeoutStr) setApiTimeoutMs(savedTimeoutStr);
@@ -89,6 +100,9 @@ export default function ConfiguracoesScreen() {
       
       if (urlToUse) {
          try {
+             // Load Printer Config
+             loadPrinters();
+
              const config = await NfceService.getConfig();
              if (config) {
                  setCsc(config.csc);
@@ -107,6 +121,57 @@ export default function ConfiguracoesScreen() {
       }
     })();
   }, []);
+
+  const loadPrinters = async () => {
+    setLoadingPrinters(true);
+    try {
+      const res = await printerService.list();
+      const list = Array.isArray(res?.data) ? res.data : (Array.isArray(res?.data?.data) ? res.data.data : []);
+      setPrinters(list);
+    } catch (e) {
+      console.log('Erro ao carregar impressoras', e);
+    } finally {
+      setLoadingPrinters(false);
+    }
+  };
+
+  const handleAddPrinter = async () => {
+    if (!newPrinterName.trim()) {
+      Alert.alert('Erro', 'Informe o nome da impressora');
+      return;
+    }
+    setSavingPrinter(true);
+    try {
+      await printerService.create({ 
+        nome: newPrinterName, 
+        address: newPrinterAddress, 
+        ativo: true 
+      });
+      setNewPrinterName('');
+      setNewPrinterAddress('');
+      setPrinterModalVisible(false);
+      Alert.alert('Sucesso', 'Impressora cadastrada!');
+      loadPrinters();
+    } catch (e) {
+      Alert.alert('Erro', 'Falha ao cadastrar impressora.');
+    } finally {
+      setSavingPrinter(false);
+    }
+  };
+
+  const handleDeletePrinter = async (id: string) => {
+    Alert.alert('Confirmar', 'Deseja remover esta impressora?', [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Remover', style: 'destructive', onPress: async () => {
+          try {
+            await printerService.delete(id);
+            loadPrinters();
+          } catch (e) {
+            Alert.alert('Erro', 'Falha ao remover impressora.');
+          }
+      }}
+    ]);
+  };
 
   const handleScanWifi = async () => {
     setScanning(true);
@@ -162,6 +227,10 @@ const getEnvApiUrl = (): string | undefined => {
       await AsyncStorage.setItem(STORAGE_KEYS.API_BASE_URL, apiUrl);
       if (apiKey) await setSecureItem(STORAGE_KEYS.API_AUTH_KEY, apiKey);
       else await setSecureItem(STORAGE_KEYS.API_AUTH_KEY, '');
+
+      if (googleMapsKey) await setSecureItem(STORAGE_KEYS.GOOGLE_MAPS_KEY, googleMapsKey);
+      else await setSecureItem(STORAGE_KEYS.GOOGLE_MAPS_KEY, '');
+
       Alert.alert('Configuração da API', 'Configurações salvas com sucesso.');
     } catch (e) {
       Alert.alert('Configuração da API', 'Falha ao salvar as configurações.');
@@ -472,6 +541,20 @@ const getEnvApiUrl = (): string | undefined => {
           />
         </View>
 
+        <View style={styles.formGroup}>
+           <Text style={styles.label}>Google Maps API Key (Opcional)</Text>
+           <TextInput
+             placeholder="AIzaSy..."
+             style={styles.input}
+             value={googleMapsKey}
+             onChangeText={setGoogleMapsKey}
+             autoCapitalize="none"
+           />
+           <Text style={{fontSize:10, color:'#666', marginTop:4}}>
+              Necessária para cálculo preciso de rotas e mapas.
+           </Text>
+        </View>
+
         <View style={styles.row}>
           <TouchableOpacity style={[styles.button, styles.secondaryButton]} onPress={handleTestConnection} activeOpacity={0.8}>
             {testing ? (
@@ -757,6 +840,102 @@ const getEnvApiUrl = (): string | undefined => {
 
       </View>
 
+
+      {/* Seção Gestão de Impressoras */}
+      <View style={styles.section}>
+        <View style={styles.sectionHeader}>
+          <Ionicons name="print" size={20} color="#FF5722" />
+          <Text style={styles.sectionTitle}>Gestão de Impressoras</Text>
+        </View>
+
+        {loadingPrinters ? (
+           <ActivityIndicator size="small" color="#FF5722" style={{ marginVertical: 10 }} />
+        ) : (
+           <View>
+             {printers.length === 0 ? (
+               <Text style={{ textAlign: 'center', color: '#666', marginBottom: 10, fontStyle: 'italic' }}>
+                 Nenhuma impressora cadastrada.
+               </Text>
+             ) : (
+               printers.map((p) => (
+                 <View key={p.id} style={styles.printerItem}>
+                   <View style={{ flex: 1 }}>
+                     <Text style={styles.printerName}>{p.nome}</Text>
+                     <Text style={styles.printerInfo}>
+                       {p.address || 'Sem endereço/rede'} {p.modelo ? `• ${p.modelo}` : ''}
+                     </Text>
+                   </View>
+                   <TouchableOpacity onPress={() => handleDeletePrinter(p.id)} style={{ padding: 8 }}>
+                     <Ionicons name="trash-outline" size={20} color="#F44336" />
+                   </TouchableOpacity>
+                 </View>
+               ))
+             )}
+           </View>
+        )}
+
+        <TouchableOpacity 
+          style={[styles.button, styles.secondaryButton, { marginTop: 10, borderColor: '#FF5722' }]} 
+          onPress={() => setPrinterModalVisible(true)} 
+          activeOpacity={0.8}
+        >
+           <Ionicons name="add-circle" size={18} color="#FF5722" />
+           <Text style={[styles.buttonText, { color: '#FF5722' }]}> Adicionar Impressora</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Modal de Cadastro de Impressora */}
+      <Modal visible={printerModalVisible} transparent animationType="fade" onRequestClose={() => setPrinterModalVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Nova Impressora</Text>
+              <TouchableOpacity onPress={() => setPrinterModalVisible(false)}>
+                <Ionicons name="close" size={22} color="#333" />
+              </TouchableOpacity>
+            </View>
+            <ScrollView>
+               <View style={styles.formGroup}>
+                 <Text style={styles.label}>Nome da Impressora *</Text>
+                 <TextInput
+                   placeholder="Ex: Cozinha, Caixa, Delivery"
+                   style={styles.input}
+                   value={newPrinterName}
+                   onChangeText={setNewPrinterName}
+                 />
+                 <Text style={{ fontSize: 10, color: '#999', marginTop: 4 }}>
+                   Nomes sugeridos: Caixa, Delivery, Cozinha
+                 </Text>
+               </View>
+
+               <View style={styles.formGroup}>
+                  <Text style={styles.label}>Endereço / Caminho (Opcional)</Text>
+                  <TextInput
+                    placeholder="Ex: \\PC-CAIXA\Impressora ou 192.168.1.200"
+                    style={styles.input}
+                    value={newPrinterAddress}
+                    onChangeText={setNewPrinterAddress}
+                  />
+               </View>
+
+               <TouchableOpacity 
+                 style={[styles.button, styles.primaryButton, { backgroundColor: '#FF5722', marginTop: 10 }]} 
+                 onPress={handleAddPrinter}
+               >
+                 {savingPrinter ? (
+                   <ActivityIndicator color="#fff" />
+                 ) : (
+                   <>
+                     <Ionicons name="save" size={18} color="#fff" />
+                     <Text style={styles.primaryButtonText}> Salvar Impressora</Text>
+                   </>
+                 )}
+               </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
       {/* Modal de Seleção de WiFi */}
       <Modal visible={wifiModalVisible} transparent animationType="fade" onRequestClose={() => setWifiModalVisible(false)}>
         <View style={styles.modalOverlay}>
@@ -894,4 +1073,17 @@ const styles = StyleSheet.create({
   networkRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   networkSsid: { fontSize: 14, color: '#333', fontWeight: '600' },
   networkMeta: { fontSize: 12, color: '#666' },
+  accessDeniedSubtext: { fontSize: 16, color: '#888', textAlign: 'center', marginTop: 8 },
+  printerItem: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    backgroundColor: '#fff', 
+    padding: 12, 
+    borderRadius: 8, 
+    borderWidth: 1, 
+    borderColor: '#eee', 
+    marginBottom: 8 
+  },
+  printerName: { fontSize: 16, fontWeight: 'bold', color: '#333' },
+  printerInfo: { fontSize: 12, color: '#666' }
 });

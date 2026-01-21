@@ -25,7 +25,7 @@ import Constants from 'expo-constants';
 import api, { saleService, mesaService, comandaService, getWsUrl, authService, API_URL, companyService, customerService, employeeService } from '../src/services/api';
 import DeliveryDetailsModal from '../src/components/DeliveryDetailsModal';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { STORAGE_KEYS } from '../src/services/storage';
+import { STORAGE_KEYS, getSecureItem } from '../src/services/storage';
 import AddProductToTable from '../src/components/AddProductToTable';
 import ScreenIdentifier from '../src/components/ScreenIdentifier';
 import SaleItemsModal from '../src/components/SaleItemsModal';
@@ -132,12 +132,15 @@ export default function SaleScreen() {
 
 
   // API Key for Maps
-  const GOOGLE_API_KEY = Constants.expoConfig?.android?.config?.googleMaps?.apiKey || Constants.expoConfig?.ios?.config?.googleMapsApiKey || '';
+  const [googleMapsKey, setGoogleMapsKey] = useState(Constants.expoConfig?.android?.config?.googleMaps?.apiKey || Constants.expoConfig?.ios?.config?.googleMapsApiKey || '');
 
   useEffect(() => {
     let mounted = true;
     (async () => {
       try {
+        const storedMapKey = await getSecureItem(STORAGE_KEYS.GOOGLE_MAPS_KEY);
+        if (storedMapKey && mounted) setGoogleMapsKey(storedMapKey);
+
         const existingToken = await AsyncStorage.getItem(STORAGE_KEYS.AUTH_TOKEN);
         if (!existingToken) {
           const login = await authService.login({ email: 'admin@barapp.com', senha: '123456' });
@@ -146,7 +149,6 @@ export default function SaleScreen() {
         }
       } catch {}
     })();
-    return () => { mounted = false; };
     return () => { mounted = false; };
   }, []);
 
@@ -1417,7 +1419,7 @@ export default function SaleScreen() {
             onSelectEntregador={() => setShowEmployeeModal(true)}
             user={user}
             loading={loading}
-            GOOGLE_API_KEY={GOOGLE_API_KEY}
+            GOOGLE_API_KEY={googleMapsKey}
             onConfirm={async (emitirNfce: boolean) => {
 
                 // Copied updated logic with recovery

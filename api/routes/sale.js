@@ -1444,64 +1444,132 @@ router.post('/:id/delivery-print', async (req, res) => {
     if (!venda) return res.status(404).json({ error: 'Venda não encontrada' });
 
     // 2. Montar Conteúdo (Moved up)
-    const pad = (str, len) => (str + ' '.repeat(len)).slice(0, len);
-    const line = '-'.repeat(32);
+    // 2. Montar Conteúdo HTML (Novo Layout)
+    const company = await prisma.company.findFirst();
+    const companyName = company?.nomeFantasia || company?.razaoSocial || 'BarApp';
+    const companyAddress = company?.endereco || '';
+    const companyFone = company?.telefone || '';
+
     const dateStr = new Date().toLocaleString('pt-BR');
-    
-    let content = '';
-    content += '       PEDIDO DELIVERY\n';
-    content += `${line}\n`;
-    content += `Comanda: ${venda.nomeComanda || venda.id}\n`;
-    content += `Data: ${dateStr}\n`;
-    content += `${line}\n`;
-    
-    if (venda.cliente) {
-        content += `CLIENTE: ${venda.cliente.nome}\n`;
-        if (venda.cliente.fone) content += `Tel: ${venda.cliente.fone}\n`;
-    } else {
-        content += `CLIENTE: Nao Identificado\n`;
-    }
-    
-    if (venda.deliveryAddress) {
-        // Quebra de linha simples para endereço
-        const addr = venda.deliveryAddress;
-        content += `ENDERECO:\n${addr.slice(0, 32)}\n`;
-        if (addr.length > 32) content += `${addr.slice(32, 64)}\n`;
-    } else if (venda.cliente?.endereco) {
-         content += `ENDERECO:\n${venda.cliente.endereco.slice(0, 32)}\n`;
-    }
-    
-    content += `${line}\n`;
-    content += `ITEM             QTD   VALOR\n`;
-    
-    let subtotalItens = 0;
-    for (const item of venda.itens) {
-        const nome = item.nomeProduto.slice(0, 16);
-        const qtd = String(item.quantidade).padStart(3);
-        const totalItem = Number(item.subtotal); // ou qtd * unitario
-        subtotalItens += totalItem;
-        const val = totalItem.toFixed(2).padStart(7);
-        content += `${pad(nome, 16)} ${qtd} ${val}\n`;
-        
-        if (item.observacoes) {
-            content += `  Obs: ${item.observacoes.slice(0, 28)}\n`;
-        }
-    }
-    
-    content += `${line}\n`;
-    content += `Subtotal:        R$ ${subtotalItens.toFixed(2).padStart(8)}\n`;
+    const subtotalItens = venda.itens.reduce((acc, item) => acc + Number(item.subtotal || 0), 0);
     const taxa = Number(venda.deliveryFee || 0);
-    if (taxa > 0) {
-        content += `Taxa Entrega:    R$ ${taxa.toFixed(2).padStart(8)}\n`;
-    }
     const desc = Number(venda.desconto || 0);
-    if (desc > 0) {
-        content += `Desconto:       -R$ ${desc.toFixed(2).padStart(8)}\n`;
-    }
-    
     const totalFinal = subtotalItens + taxa - desc;
-    content += `TOTAL:           R$ ${totalFinal.toFixed(2).padStart(8)}\n`;
-    content += `${line}\n\n\n`; // Feed
+
+    const itemsHtml = venda.itens.map(item => `
+      <tr>
+        <td style="vertical-align: top;">${item.quantidade}x</td>
+        <td style="vertical-align: top;">
+          ${item.nomeProduto}
+          ${item.observacoes ? `<br/><small><i>Obs: ${item.observacoes}</i></small>` : ''}
+        </td>
+        <td style="vertical-align: top; text-align: right;">${Number(item.subtotal).toFixed(2)}</td>
+      </tr>
+    `).join('');
+
+    const content = `
+    <html>
+    <head>
+      <meta charset="UTF-8">
+      <style>
+        @page { margin: 0; }
+        body { 
+          font-family: 'Courier New', monospace; 
+          width: 300px; 
+          margin: 0 auto; 
+          padding: 10px;
+          color: #000; 
+          font-size: 12px;
+        }
+        .center { text-align: center; }
+        .bold { font-weight: bold; }
+        .title { font-size: 16px; font-weight: bold; margin-bottom: 4px; }
+        .subtitle { font-size: 12px; margin-bottom: 2px; }
+        .divider { border-top: 1px dashed #000; margin: 10px 0; }
+        .section-title { font-weight: bold; margin-bottom: 4px; background: #eee; padding: 2px; }
+        .row { display: flex; justify-content: space-between; }
+        table { width: 100%; border-collapse: collapse; }
+        th { text-align: left; border-bottom: 1px solid #000; font-size: 11px; }
+        td { padding: 4px 0; font-size: 12px; }
+        .total-row { font-size: 14px; font-weight: bold; margin-top: 5px; }
+        .info-block { margin-bottom: 8px; }
+      </style>
+    </head>
+    <body onload="window.print()">
+      <div class="center">
+        <div class="title">${companyName}</div>
+        <div class="subtitle">${companyAddress}</div>
+        <div class="subtitle">${companyFone}</div>
+        <br/>
+        <div class="title" style="border: 2px solid #000; padding: 4px; display: inline-block;">COMPROVANTE ENTREGA</div>
+        <div class="subtitle" style="margin-top: 8px;">Pedido: <b>#${venda.id}</b></div>
+        <div class="subtitle">${dateStr}</div>
+      </div>
+      
+      <div class="divider"></div>
+      
+      <div class="info-block">
+        <div class="section-title">DADOS DO CLIENTE</div>
+        <div><b>Nome:</b> ${venda.cliente?.nome || 'Cliente Balcão'}</div>
+        <div><b>Tel:</b> ${venda.cliente?.fone || 'N/A'}</div>
+        <div><b>Endereço:</b><br/>${venda.deliveryAddress || venda.cliente?.endereco || 'Retirada no Local'}</div>
+      </div>
+      
+      <div class="divider"></div>
+      
+      <div class="info-block">
+        <div class="section-title">ITENS DO PEDIDO</div>
+        <table>
+          <thead>
+            <tr>
+              <th width="15%">QTD</th>
+              <th width="60%">ITEM</th>
+              <th width="25%" style="text-align: right;">TOTAL</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${itemsHtml}
+          </tbody>
+        </table>
+      </div>
+      
+      <div class="divider"></div>
+      
+      <table style="font-weight: bold;">
+        <tr>
+          <td>Subtotal</td>
+          <td style="text-align: right;">R$ ${subtotalItens.toFixed(2)}</td>
+        </tr>
+        ${taxa > 0 ? `
+        <tr>
+          <td>Taxa Entrega</td>
+          <td style="text-align: right;">+ R$ ${taxa.toFixed(2)}</td>
+        </tr>` : ''}
+        ${desc > 0 ? `
+        <tr>
+          <td>Desconto</td>
+          <td style="text-align: right;">- R$ ${desc.toFixed(2)}</td>
+        </tr>` : ''}
+        <tr style="font-size: 16px; border-top: 1px solid #000;">
+          <td style="padding-top: 8px;">TOTAL</td>
+          <td style="text-align: right; padding-top: 8px;">R$ ${totalFinal.toFixed(2)}</td>
+        </tr>
+      </table>
+      
+      <div class="divider"></div>
+      
+      <div class="info-block">
+        ${venda.formaPagamento ? `<div><b>Forma Pagamento:</b> ${venda.formaPagamento.toUpperCase()}</div>` : ''}
+        ${venda.trocoPara ? `<div><b>Troco para:</b> R$ ${Number(venda.trocoPara).toFixed(2)}</div>` : ''}
+        ${venda.observacoes ? `<div><b>Obs. Pedido:</b> ${venda.observacoes}</div>` : ''}
+      </div>
+
+      <div class="center" style="margin-top: 20px;">
+        <small>Sistema BarApp</small>
+      </div>
+    </body>
+    </html>
+    `;
 
     // 1. Verificar Impressora (Moved down)
     let printer = await prisma.printer.findFirst({

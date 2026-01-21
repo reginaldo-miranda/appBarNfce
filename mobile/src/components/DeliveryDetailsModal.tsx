@@ -115,7 +115,32 @@ const DeliveryDetailsModal: React.FC<DeliveryDetailsModalProps> = ({
     };
 
     const fetchDrivingDistance = async (lat1: number, lon1: number, lat2: number, lon2: number) => {
+        // 1. Try Google Maps API if Key is available
+        if (GOOGLE_API_KEY) {
+            try {
+                const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${lat1},${lon1}&destination=${lat2},${lon2}&key=${GOOGLE_API_KEY}`;
+                const res = await fetch(url);
+                const json = await res.json();
+                
+                if (json.status === 'OK' && json.routes && json.routes.length > 0) {
+                     const legs = json.routes[0].legs;
+                     if (legs && legs.length > 0) {
+                         const meters = legs[0].distance.value;
+                         const km = parseFloat((meters / 1000).toFixed(2));
+                         console.log(`[Distance] Google Maps: ${km} km`);
+                         return km;
+                     }
+                } else {
+                    console.warn('[Distance] Google Maps Error/NoRoute:', json.status);
+                }
+            } catch (gErr) {
+                console.error('[Distance] Google Maps Request Error:', gErr);
+            }
+        }
+
+        // 2. Fallback to OSRM
         try {
+            console.log('[Distance] Fallback to OSRM...');
             const url = `http://router.project-osrm.org/route/v1/driving/${lon1},${lat1};${lon2},${lat2}?overview=false`;
             const res = await fetch(url);
             const json = await res.json();
@@ -123,6 +148,7 @@ const DeliveryDetailsModal: React.FC<DeliveryDetailsModalProps> = ({
             if (json.code === 'Ok' && json.routes && json.routes.length > 0) {
                 const meters = json.routes[0].distance;
                 const km = parseFloat((meters / 1000).toFixed(2));
+                 console.log(`[Distance] OSRM: ${km} km`);
                 return km;
             }
         } catch (error) {
@@ -385,6 +411,51 @@ const DeliveryDetailsModal: React.FC<DeliveryDetailsModalProps> = ({
                                                 if (!companyConfig?.latitude || !companyConfig?.longitude) {
                                                     safeAlert('Configuração Pendente', 'Endereço da loja não configurado.');
                                                     return;
+                                                }
+
+                                                const doGoogleGeocode = async (addr: string) => {
+                                                    if (!GOOGLE_API_KEY) return null;
+                                                    try {
+                                                        const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(addr)}&key=${GOOGLE_API_KEY}`;
+                                                        const res = await fetch(url);
+                                                        const json = await res.json();
+                                                        if (json.status === 'OK' && json.results.length > 0) {
+                                                            return json.results[0];
+                                                        }
+                                                    } catch (e) {
+                                                        console.error('Google Geocode Error:', e);
+                                                    }
+                                                    return null;
+                                                };
+
+                                                // Tentar Google Geocoding Primeiro
+                                                if (GOOGLE_API_KEY) {
+                                                    const googleResult = await doGoogleGeocode(deliveryAddress);
+                                                    if (googleResult) {
+                                                        const { lat, lng } = googleResult.geometry.location;
+                                                        const formattedAddress = googleResult.formatted_address;
+                                                        
+                                                        setDeliveryAddress(formattedAddress);
+                                                        setDeliveryCoords({ lat, lng });
+                                                        
+                                                        const straightLine = calculateDistance(Number(companyConfig.latitude), Number(companyConfig.longitude), lat, lng);
+                                                        const estRoadDist = parseFloat((straightLine * 1.3).toFixed(2));
+                                                        setDeliveryDistance(estRoadDist);
+
+                                                        if (Platform.OS === 'web') {
+                                                            setTimeout(() => window.alert(`Endereço Encontrado (Google)!\n${formattedAddress}\n\nDistância Estimada: ${estRoadDist} km`), 100);
+                                                        } else {
+                                                            Alert.alert('Sucesso', `Endereço Encontrado (Google)!\n${formattedAddress}\n\nDistância Estimada: ${estRoadDist} km`);
+                                                        }
+
+                                                        // Rota Real
+                                                        fetchDrivingDistance(Number(companyConfig.latitude), Number(companyConfig.longitude), lat, lng).then(realDist => {
+                                                            if (realDist !== null) {
+                                                                setDeliveryDistance(realDist);
+                                                            }
+                                                        });
+                                                        return; // Sai se achou pelo Google
+                                                    }
                                                 }
 
                                                 const doSearch = async (addr: string) => {

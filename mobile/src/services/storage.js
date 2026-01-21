@@ -57,7 +57,8 @@ export const STORAGE_KEYS = {
   WIFI_SSID: 'WIFI_SSID',
   WIFI_PASSWORD: 'WIFI_PASSWORD',
   AUTH_TOKEN: 'authToken',
-  API_TIMEOUT_MS: 'API_TIMEOUT_MS',
+  API_TIMEOUT_MS: 'barapp_api_timeout_ms',
+  GOOGLE_MAPS_KEY: 'barapp_google_maps_key',
   DB_TARGET: 'DB_TARGET',
   CLIENT_MODE: 'CLIENT_MODE',
 };
