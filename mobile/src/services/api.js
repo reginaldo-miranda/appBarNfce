@@ -444,6 +444,7 @@ export const productService = {
   getAll: () => api.get('/product/list'),
   getById: (id) => api.get(`/product/${id}`),
   create: (data) => api.post('/product/create', data),
+  createBulk: (products) => api.post('/product/bulk-create', { products }),
   update: (id, data) => api.put(`/product/update/${id}`, data),
   delete: (id) => api.delete(`/product/delete/${id}`),
   getUsedCategories: () => api.get('/product/categories/used'),

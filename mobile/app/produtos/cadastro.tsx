@@ -22,7 +22,8 @@ import { Picker } from '@react-native-picker/picker';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { useProduct } from '../../src/contexts/ProductContext';
 import { productService, typeService, unidadeMedidaService, categoryService, setorImpressaoService } from '../../src/services/api';
-import { ProductSize } from '../../src/types';
+import BulkProductModal from '../../src/components/BulkProductModal';
+
 
 interface Categoria {
   id: string;
@@ -60,6 +61,38 @@ export default function CadastroProduto() {
   const { id } = useLocalSearchParams();
   const isEditing = !!id;
   
+  const [showBulkModal, setShowBulkModal] = useState(false);
+
+  const handleBulkSuccess = () => {
+     setShowBulkModal(false);
+     // Opcional: Recarregar lista ou voltar
+     // router.back(); 
+     Alert.alert('Sucesso', 'Produtos replicados com sucesso!');
+  };
+
+  const getBaseProductForBulk = () => {
+    return {
+        nome,
+        descricao,
+        preco: preco, // String formatada
+        precoVenda: parseFloat(preco.replace(',', '.')),
+        precoCusto: precoCusto ? parseFloat(precoCusto.replace(',', '.')) : 0,
+        categoria: categorias.find(c => c.id === categoriaId)?.nome || '',
+        categoriaId,
+        tipoId,
+        unidadeMedidaId: unidadeId,
+        estoque,
+        ativo,
+        temVariacao,
+        temTamanhos,
+        tamanhos: tamanhos,
+        setoresImpressaoIds: selectedSetores,
+        // Fiscal
+        codigoBarras,
+        ncm, cest, cfop, csosn, origem
+    };
+  };
+
   const [nome, setNome] = useState('');
   const [descricao, setDescricao] = useState('');
   const [preco, setPreco] = useState('');
@@ -584,6 +617,21 @@ export default function CadastroProduto() {
             <Ionicons name="arrow-back" size={24} color="#2196F3" />
           </TouchableOpacity>
           <Text style={styles.title}>{isEditing ? 'Editar Produto' : 'Novo Produto'}</Text>
+          
+          <TouchableOpacity 
+                onPress={() => {
+                    if (!nome || !preco) {
+                            Alert.alert('Atenção', 'Preencha pelo menos Nome e Preço antes de replicar.');
+                            return;
+                    }
+                    setShowBulkModal(true);
+                }} 
+                style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#e3f2fd', padding: 8, borderRadius: 8, marginRight: 10 }}
+            >
+                <Ionicons name="documents-outline" size={20} color="#2196F3" />
+                <Text style={{ color: '#2196F3', fontWeight: 'bold', marginLeft: 5 }}>Replicar</Text>
+          </TouchableOpacity>
+
           {saveSuccess && (
             <View style={styles.successIndicator}>
               <Ionicons name="checkmark-circle" size={24} color="#4CAF50" />
@@ -1097,6 +1145,13 @@ export default function CadastroProduto() {
           </View>
         </View>
       </Modal>
+      
+       <BulkProductModal
+          visible={showBulkModal}
+          onClose={() => setShowBulkModal(false)}
+          baseProduct={getBaseProductForBulk()}
+          onSuccess={handleBulkSuccess}
+       />
     </KeyboardAvoidingView>
   );
 }
