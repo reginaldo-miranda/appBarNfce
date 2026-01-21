@@ -27,6 +27,7 @@ import { STORAGE_KEYS } from '../../src/services/storage';
   import { API_URL } from '../../src/services/api';
   import { events } from '../../src/utils/eventBus';
   import PasswordConfirmModal from '../../src/components/PasswordConfirmModal';
+import ReceiptModal from '../../src/components/ReceiptModal';
 import { useFocusEffect } from '@react-navigation/native';
 
 interface Funcionario {
@@ -81,6 +82,36 @@ export default function MesasScreen() {
   // Estado para cancelar mesa
   const [cancelMesaModalVisible, setCancelMesaModalVisible] = useState(false);
   const [cancelMesaTarget, setCancelMesaTarget] = useState<Mesa | null>(null);
+
+  // Receipt Modal
+  const [receiptModalVisible, setReceiptModalVisible] = useState(false);
+  const [selectedReceiptSale, setSelectedReceiptSale] = useState<any>(null);
+
+  const handleOpenReceiptMesa = async (mesa: Mesa) => {
+    try {
+        let saleData = null;
+        // Tenta pegar do vendaAtual se tiver itens (raro, geralmente é resumo)
+        if (mesa.vendaAtual && (mesa.vendaAtual as any).itens) {
+            saleData = mesa.vendaAtual;
+        } else {
+            // Busca a venda completa
+            const resp = await saleService.getByMesa(mesa._id);
+            const sales = resp.data || [];
+            const active = sales.find((s: any) => s.status === 'aberta');
+            if (active) saleData = active;
+        }
+
+        if (saleData) {
+            setSelectedReceiptSale(saleData);
+            setReceiptModalVisible(true);
+        } else {
+            Alert.alert('Aviso', 'Não há venda aberta com itens para esta mesa.');
+        }
+    } catch (e) {
+        console.error('Erro ao abrir cupom mesa:', e);
+        Alert.alert('Erro', 'Falha ao carregar dados da venda.');
+    }
+  };
   
   // Estados para formulários
   const [quantidades, setQuantidades] = useState({
@@ -992,37 +1023,28 @@ useEffect(() => {
     return (
       <View style={[styles.mesaCard, { borderLeftColor: getStatusColor(item.status) }]}>
         <View style={styles.mesaHeader}>
-          <Text style={styles.mesaNumero}>
-            Mesa {item.numero}
-            {(item.nomeResponsavel || item.funcionarioResponsavel?.nome) &&
-              (() => {
-                const id = String(item?._id ?? (item as any)?.id ?? '');
-                const vt = item?.vendaAtual?.total;
-                const mapData = id ? mesaOpenTotals[id] : undefined;
-                const displayTotal = vt != null && Number(vt) > 0 ? Number(vt) : (mapData?.total || 0);
-                const displayPaid = mapData?.pago || 0;
-                
-                const valorTotal = displayTotal.toFixed(2).replace('.', ',');
-                
-                // Construção da string de exibição no cabeçalho
-                let text = ``;
-                if (displayTotal > 0) {
-                     text += ` - R$ ${valorTotal}`;
+          <TouchableOpacity onPress={() => handleOpenReceiptMesa(item)}>
+            <Text style={[styles.mesaNumero, { textDecorationLine: 'underline', color: '#2196F3' }]}>
+                Mesa {item.numero}
+                {(item.nomeResponsavel || item.funcionarioResponsavel?.nome) &&
+                (() => {
+                    const id = String(item?._id ?? (item as any)?.id ?? '');
+                    const vt = item?.vendaAtual?.total;
+                    const mapData = id ? mesaOpenTotals[id] : undefined;
+                    const displayTotal = vt != null && Number(vt) > 0 ? Number(vt) : (mapData?.total || 0);
+
+                    const valorTotal = displayTotal.toFixed(2).replace('.', ',');
+                    
+                    let text = ``;
+                    if (displayTotal > 0) {
+                        text += ` - R$ ${valorTotal}`;
+                    }
+                    text += ` - Responsável: ${item.nomeResponsavel || item.funcionarioResponsavel?.nome}`;
+                    return text;
+                })()
                 }
-                text += ` - Responsável: ${item.nomeResponsavel || item.funcionarioResponsavel?.nome}`;
-                
-                // Se houver valor pago parcial, mostrar detalhes visuais extras
-                if (displayPaid > 0 && displayTotal > 0) {
-                   // Opcional: injetar JSX aqui? Não, string pura.
-                   // Vamos retornar apenas o nome/resp aqui e tratar os valores abaixo no JSX principal
-                   // para ter flexibilidade de cor/estilo.
-                   // Revertendo para comportamento original e adicionando bloco de valores abaixo
-                   // mas como a estrutura espera string, vamos simplificar o header e adicionar bloco
-                }
-                return text;
-              })()
-            }
-          </Text>
+            </Text>
+          </TouchableOpacity>
           <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) }]}>
             <SafeIcon name={getStatusIcon(item.status)} size={12} color="#fff" fallbackText="•" />
             <Text style={styles.statusText}>{getStatusText(item.status)}</Text>
@@ -1781,6 +1803,12 @@ useEffect(() => {
           setCancelMesaModalVisible(false);
           setCancelMesaTarget(null);
         }}
+      />
+      
+      <ReceiptModal 
+        visible={receiptModalVisible} 
+        sale={selectedReceiptSale}
+        onClose={() => setReceiptModalVisible(false)} 
       />
     </View>
   );

@@ -1,6 +1,8 @@
 import React from 'react';
 import { View, Text, Modal, StyleSheet, ScrollView, TouchableOpacity, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
 
 interface Props {
   visible: boolean;
@@ -26,6 +28,115 @@ export default function ReceiptModal({ visible, onClose, sale }: Props) {
   const deliveryFee = Number(sale.deliveryFee) || 0;
   const total = Number(sale.total) || (subtotal + deliveryFee - Number(sale.desconto || 0));
 
+  const handlePrint = async () => {
+    const itemsHtml = items.map((item: any, index: number) => `
+      <div style="margin-bottom: 5px;">
+        <div>${String(index + 1).padStart(3, '0')} ${String(item.produtoId || '000').padStart(5, '0')} ${item.produto?.nome?.substring(0, 20).toUpperCase() || 'PRODUTO'}</div>
+        <div style="display: flex; justify-content: space-between;">
+           <span>     ${Number(item.quantidade).toFixed(0)} UN x ${Number(item.precoUnitario).toFixed(2).replace('.', ',')}</span>
+           <span>${Number(item.subtotal || (item.quantidade * item.precoUnitario)).toFixed(2).replace('.', ',')}</span>
+        </div>
+      </div>
+    `).join('');
+
+    const deliveryHtml = deliveryFee > 0 ? `
+      <div style="margin-bottom: 5px;">
+        <div>${String(items.length + 1).padStart(3, '0')} ENTREGA    TAXA DE ENTREGA</div>
+        <div style="display: flex; justify-content: space-between;">
+           <span>     1 UN x ${deliveryFee.toFixed(2).replace('.', ',')}</span>
+           <span>${deliveryFee.toFixed(2).replace('.', ',')}</span>
+        </div>
+      </div>
+    ` : '';
+
+    const html = `
+      <html>
+        <head>
+          <style>
+            body { font-family: 'Courier New', monospace; font-size: 12px; padding: 20px; max-width: 300px; margin: 0 auto; background-color: #fff; }
+            .center { text-align: center; }
+            .bold { font-weight: bold; }
+            .dashed { border-bottom: 1px dashed #000; margin: 10px 0; }
+            .row { display: flex; justify-content: space-between; }
+            @media print {
+              body { background-color: white; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="center bold">NOVA SUICA / LIMEIRA-SP</div>
+          <div class="center">Fone: 1934561033 Fax: 34534142</div>
+          <div class="center">CNPJ: 04.386.179/0001-18  IE: 417.226.989.119</div>
+          
+          <div class="dashed"></div>
+          
+          <div class="row">
+            <span>${formatDate(sale.createdAt)}</span>
+            <span>PDV:001</span>
+            <span>CI:${String(sale.id).padStart(8, '0')}</span>
+          </div>
+          
+          <div class="dashed"></div>
+          
+          <div>Cliente:   [${sale.cliente?.nome?.toUpperCase() || 'CONSUMIDOR'}]</div>
+          <div>Endereço:  ${sale.deliveryAddress || 'RETIRADA'}</div>
+          <div>Vendedor:  ${sale.funcionario?.nome?.toUpperCase() || 'BALCAO'}</div>
+          <div>Pagto:     [A VISTA]</div>
+          
+          <div class="dashed"></div>
+          <div class="center bold" style="font-size: 14px;">SEM VALOR FISCAL</div>
+          <div class="dashed"></div>
+          
+          <div style="display: flex;">
+            <span style="flex: 1;">ITEM CODIGO</span>
+            <span style="flex: 2;">DESCRICAO</span>
+            <span style="flex: 1; text-align: right;">VL ITEM</span>
+          </div>
+          <div style="font-size: 10px;">QTD. UND  VL UNIT. DESC %</div>
+          
+          <div class="dashed"></div>
+          
+          ${itemsHtml}
+          ${deliveryHtml}
+          
+          <div class="dashed"></div>
+          
+          <div>Volumes: ${items.length}</div>
+          
+          <div class="dashed" style="width: 40%; margin-left: auto;"></div>
+          
+          <div class="row bold" style="font-size: 16px;">
+            <span>TOTAL</span>
+            <span>R$</span>
+            <span>${total.toFixed(2).replace('.', ',')}</span>
+          </div>
+          
+          <br/>
+          
+          <div class="row">
+            <span>Dinheiro</span>
+            <span>${total.toFixed(2).replace('.', ',')}</span>
+          </div>
+          
+          <br/><br/>
+          <div class="center" style="font-size: 10px;">biroska.com.br</div>
+        </body>
+      </html>
+    `;
+
+    try {
+      if (Platform.OS === 'web') {
+        await Print.printAsync({ html });
+      } else {
+        const { uri } = await Print.printToFileAsync({ html });
+        await Sharing.shareAsync(uri);
+      }
+    } catch (error) {
+      console.error('Error printing:', error);
+      // Fallback or alert
+    }
+  };
+
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.overlay}>
@@ -35,7 +146,9 @@ export default function ReceiptModal({ visible, onClose, sale }: Props) {
                  <Ionicons name="close" size={24} color="#333" />
              </TouchableOpacity>
              <Text style={styles.headerTitle}>Cupom de Entrega</Text>
-             <View style={{ width: 24 }} />
+             <TouchableOpacity onPress={handlePrint} style={styles.closeButton}>
+                 <Ionicons name="print" size={24} color="#333" />
+             </TouchableOpacity>
           </View>
 
           <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>

@@ -13,6 +13,7 @@ import { Comanda } from '../../src/types/index';
 import ScreenIdentifier from '../../src/components/ScreenIdentifier';
 import { events } from '../../src/utils/eventBus';
 import PasswordConfirmModal from '../../src/components/PasswordConfirmModal';
+import ReceiptModal from '../../src/components/ReceiptModal';
 import { SafeIcon } from '../../components/SafeIcon';
 
 export default function ComandasAbertasScreen() {
@@ -485,6 +486,15 @@ useEffect(() => {
     }
   };
 
+  // Receipt Modal
+  const [receiptModalVisible, setReceiptModalVisible] = useState(false);
+  const [selectedReceiptSale, setSelectedReceiptSale] = useState<any>(null);
+
+  const handleOpenReceipt = (sale: any) => {
+      setSelectedReceiptSale(sale);
+      setReceiptModalVisible(true);
+  };
+
   return (
     <View style={styles.container}>
       <ScreenIdentifier screenName="Comandas" />
@@ -534,7 +544,11 @@ useEffect(() => {
               >
                 <View style={styles.comandaInfo}>
                   <View style={styles.comandaHeader}>
-                    <Text style={styles.comandaNome}>{item.nomeComanda || item.numeroComanda || 'Sem nome'}</Text>
+                    <TouchableOpacity onPress={() => handleOpenReceipt(item)}>
+                        <Text style={[styles.comandaNome, { textDecorationLine: 'underline', color: '#2196F3' }]}>
+                            {item.nomeComanda || item.numeroComanda || 'Sem nome'}
+                        </Text>
+                    </TouchableOpacity>
                     <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) }]}>
                       <Text style={styles.statusText}>{getStatusText(item.status)}</Text>
                     </View>
@@ -740,6 +754,12 @@ useEffect(() => {
           setCancelComandaModalVisible(false);
           setCancelComandaTarget(null);
         }}
+      />
+      
+      <ReceiptModal 
+        visible={receiptModalVisible} 
+        sale={selectedReceiptSale} 
+        onClose={() => setReceiptModalVisible(false)} 
       />
     </View>
   );
