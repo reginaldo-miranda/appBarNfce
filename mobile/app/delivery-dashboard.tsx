@@ -16,6 +16,7 @@ import api, { saleService, apiService, getWsUrl, API_URL } from '../src/services
 import ScreenIdentifier from '../src/components/ScreenIdentifier';
 import { Linking, Modal } from 'react-native';
 import PaymentSplitModal from '../src/components/PaymentSplitModal';
+import ReceiptModal from '../src/components/ReceiptModal';
 // import DateTimePicker from '@react-native-community/datetimepicker';
 
 export default function DeliveryDashboardScreen() {
@@ -35,6 +36,15 @@ export default function DeliveryDashboardScreen() {
   // Modal States
   const [splitModalVisible, setSplitModalVisible] = useState(false);
   const [selectedSale, setSelectedSale] = useState<any>(null);
+
+  // Receipt Modal
+  const [receiptModalVisible, setReceiptModalVisible] = useState(false);
+  const [selectedReceiptSale, setSelectedReceiptSale] = useState<any>(null);
+
+  const handleOpenReceipt = (sale: any) => {
+      setSelectedReceiptSale(sale);
+      setReceiptModalVisible(true);
+  };
 
   const loadDeliveries = async () => {
     try {
@@ -170,8 +180,14 @@ export default function DeliveryDashboardScreen() {
             ) : (
                 deliveries.map((sale) => (
                     <View key={sale.id} style={styles.card}>
+
+
                         <View style={styles.cardHeader}>
-                            <Text style={styles.cardTitle}>#{sale.id} - {sale.cliente?.nome || 'Cliente não ident.'}</Text>
+                            <TouchableOpacity onPress={() => handleOpenReceipt(sale)}>
+                                <Text style={[styles.cardTitle, { textDecorationLine: 'underline', color: '#2196F3' }]}>
+                                    #{sale.id} - {sale.cliente?.nome || 'Cliente não ident.'}
+                                </Text>
+                            </TouchableOpacity>
                             <View style={[styles.statusBadge, (sale.deliveryStatus === 'delivered' || sale.status === 'finalizada') && { backgroundColor: '#4CAF50' }]}>
                                 <Text style={[styles.statusText, (sale.deliveryStatus === 'delivered' || sale.status === 'finalizada') && { color: '#fff' }]}>
                                     {(sale.deliveryStatus === 'delivered' || sale.status === 'finalizada') ? 'Entregue' : 'Pendente'}
@@ -260,6 +276,12 @@ export default function DeliveryDashboardScreen() {
                     }
                 }
             }}
+        />
+
+        <ReceiptModal 
+            visible={receiptModalVisible} 
+            sale={selectedReceiptSale}
+            onClose={() => setReceiptModalVisible(false)}
         />
     </View>
   );
