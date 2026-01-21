@@ -26,7 +26,7 @@ const styles = StyleSheet.create({
   container: {
     position: 'absolute',
     top: 50,
-    right: 10,
+    left: 10, // Changed from right: 10 to left: 10 to avoid conflict with header buttons
     backgroundColor: 'rgba(0, 0, 0, 0.7)',
     paddingHorizontal: 8,
     paddingVertical: 4,

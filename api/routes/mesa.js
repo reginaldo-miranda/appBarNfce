@@ -285,6 +285,128 @@ router.put('/:id', async (req, res) => {
   }
 });
 
+// Juntar Mesas (Merge)
+router.post('/merge', async (req, res) => {
+  try {
+    const { targetMesaId, sourceMesaIds } = req.body;
+
+    const targetId = Number(targetMesaId);
+    if (!targetId || !Array.isArray(sourceMesaIds) || sourceMesaIds.length === 0) {
+      return res.status(400).json({ message: 'Dados inválidos para junção' });
+    }
+
+    // Usar transação para garantir integridade
+    const result = await prisma.$transaction(async (tx) => {
+      // 1. Buscar Mesa Principal e sua Venda
+      const targetMesa = await tx.mesa.findUnique({
+        where: { id: targetId },
+        include: { vendaAtual: true }
+      });
+
+      if (!targetMesa) throw new Error('Mesa principal não encontrada');
+      if (targetMesa.status !== 'ocupada' || !targetMesa.vendaAtualId) throw new Error('Mesa principal deve estar ocupada');
+
+      const targetSale = await tx.sale.findUnique({
+        where: { id: targetMesa.vendaAtualId },
+        include: { itens: true }
+      });
+
+      if (!targetSale) throw new Error('Venda da mesa principal não encontrada');
+
+      // 2. Processar Mesas de Origem
+      for (const sourceId of sourceMesaIds) {
+        const sId = Number(sourceId);
+        if (sId === targetId) continue; // Ignorar se for a mesma
+
+        const sourceMesa = await tx.mesa.findUnique({
+          where: { id: sId },
+          include: { vendaAtual: true }
+        });
+
+        if (!sourceMesa) continue;
+        if (sourceMesa.status !== 'ocupada' || !sourceMesa.vendaAtualId) continue;
+
+        // Buscar venda de origem
+        const sourceSale = await tx.sale.findUnique({
+          where: { id: sourceMesa.vendaAtualId },
+          include: { itens: true }
+        });
+
+        if (!sourceSale) continue;
+
+      // 3. Mover Itens para a Venda Principal e cancelar venda de origem
+        await tx.saleItem.updateMany({
+          where: { saleId: sourceSale.id },
+          data: { saleId: targetSale.id }
+        });
+
+        // Cancelar venda de origem
+        await tx.sale.update({
+          where: { id: sourceSale.id },
+          data: { 
+            status: 'cancelada',
+            observacoes: `Mesclada para Mesa ${targetMesa.numero} (Venda ${targetSale.id})`,
+            mesaId: null // Desvincular da mesa
+          }
+        });
+
+        // Liberar mesa de origem
+        await tx.mesa.update({
+          where: { id: sId },
+          data: {
+            status: 'livre',
+            vendaAtualId: null,
+            funcionarioResponsavelId: null,
+            nomeResponsavel: '',
+            clientesAtuais: 0,
+            horaAbertura: null,
+            observacoes: ''
+          }
+        });
+      }
+
+      // 4. Recalcular Totais da Venda Principal
+      const allItems = await tx.saleItem.findMany({ where: { saleId: targetSale.id } });
+      const newSubtotal = allItems.reduce((acc, item) => acc + Number(item.subtotal), 0);
+      const newTotal = newSubtotal - Number(targetSale.desconto || 0);
+
+      await tx.sale.update({
+        where: { id: targetSale.id },
+        data: { 
+          subtotal: newSubtotal,
+          total: newTotal
+        }
+      });
+      
+      // Atualizar observações da mesa de destino para indicar a junção
+      const mesasOrigemNumbers = await tx.mesa.findMany({
+        where: { id: { in: sourceMesaIds.map(Number) } },
+        select: { numero: true }
+      });
+      
+      const joinedMesasStr = mesasOrigemNumbers.map(m => m.numero).join(', ');
+      // Preservar observação existente se houver
+      const existingObs = targetMesa.observacoes ? targetMesa.observacoes + ' | ' : '';
+      
+      await tx.mesa.update({
+        where: { id: targetMesa.id },
+        data: {
+          observacoes: `${existingObs}Juntou com Mesa(s): ${joinedMesasStr}`
+        }
+      });
+
+      return targetMesa;
+
+      return targetMesa;
+    });
+
+    res.json({ message: 'Mesas juntadas com sucesso!' });
+  } catch (error) {
+    console.error('ERRO AO JUNTAR MESAS:', error);
+    res.status(500).json({ message: error.message || 'Erro desconhecido ao juntar mesas', error: error.message });
+  }
+});
+
 // Deletar mesa (desativar)
 router.delete('/:id', async (req, res) => {
   try {

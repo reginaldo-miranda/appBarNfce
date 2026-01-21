@@ -597,6 +597,7 @@ export const mesaService = {
   abrir: (id, funcionarioId, nomeResponsavel, observacoes) => 
     api.post(`/mesa/${id}/abrir`, { funcionarioId, nomeResponsavel, observacoes }),
   fechar: (id) => api.post(`/mesa/${id}/fechar`),
+  merge: (targetMesaId, sourceMesaIds) => api.post('/mesa/merge', { targetMesaId, sourceMesaIds }),
 };
 
 export const comandaService = {

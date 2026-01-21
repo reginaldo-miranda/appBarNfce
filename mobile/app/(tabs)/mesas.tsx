@@ -83,6 +83,100 @@ export default function MesasScreen() {
   const [cancelMesaModalVisible, setCancelMesaModalVisible] = useState(false);
   const [cancelMesaTarget, setCancelMesaTarget] = useState<Mesa | null>(null);
 
+  // Estados para Juntar Mesas
+  const [mergeMode, setMergeMode] = useState(false);
+  const [mergeTarget, setMergeTarget] = useState<Mesa | null>(null);
+  const [mergeSources, setMergeSources] = useState<Mesa[]>([]);
+
+  const toggleMergeMode = () => {
+    if (mergeMode) {
+      setMergeMode(false);
+      setMergeTarget(null);
+      setMergeSources([]);
+    } else {
+      setMergeMode(true);
+      Alert.alert('Modo de Junção', 'Selecione a Mesa Principal e depois as mesas que deseja juntar a ela.');
+    }
+  };
+
+  const handleMergeSelect = (mesa: Mesa) => {
+    if (mesa.status !== 'ocupada') return;
+
+    if (!mergeTarget) {
+      setMergeTarget(mesa);
+      return;
+    }
+
+    if (mergeTarget._id === mesa._id) {
+      setMergeTarget(null); // Deselect target
+      setMergeSources([]); // Clear sources
+      return;
+    }
+
+    // Toggle source
+    if (mergeSources.find(m => m._id === mesa._id)) {
+      setMergeSources(prev => prev.filter(m => m._id !== mesa._id));
+    } else {
+      setMergeSources(prev => [...prev, mesa]);
+    }
+  };
+
+  const handleMergeConfirm = async () => {
+    if (!mergeTarget || mergeSources.length === 0) {
+      const msg = 'Selecione uma mesa principal e pelo menos uma mesa para juntar.';
+      if (Platform.OS === 'web') {
+        window.alert(msg);
+      } else {
+        Alert.alert('Erro', msg);
+      }
+      return;
+    }
+
+    const message = `Deseja transferir os pedidos de ${mergeSources.map(m => m.numero).join(', ')} para a Mesa ${mergeTarget.numero}?`;
+
+    const executeMerge = async () => {
+       try {
+         setLoading(true);
+         await mesaService.merge(mergeTarget._id, mergeSources.map(m => m._id));
+         
+         if (Platform.OS === 'web') {
+             window.alert('Mesas juntadas com sucesso!');
+         } else {
+             Alert.alert('Sucesso', 'Mesas juntadas com sucesso!');
+         }
+         toggleMergeMode();
+         loadMesas();
+       } catch (error: any) {
+         const errorMsg = error?.response?.data?.message || 'Erro ao juntar mesas.';
+         if (Platform.OS === 'web') {
+             window.alert(errorMsg);
+         } else {
+             Alert.alert('Erro', errorMsg);
+         }
+       } finally {
+         setLoading(false);
+       }
+    };
+
+    if (Platform.OS === 'web') {
+        if (window.confirm(message)) {
+            executeMerge();
+        }
+    } else {
+        Alert.alert(
+          'Confirmar Junção',
+          message,
+          [
+            { text: 'Cancelar', style: 'cancel' },
+            { 
+              text: 'Confirmar', 
+              onPress: executeMerge 
+            }
+          ]
+        );
+    }
+  };
+
   // Receipt Modal
   const [receiptModalVisible, setReceiptModalVisible] = useState(false);
   const [selectedReceiptSale, setSelectedReceiptSale] = useState<any>(null);
@@ -987,182 +1081,212 @@ useEffect(() => {
     }
   };
 
-  // Função para renderizar item da lista
-  const renderItem = ({ item }: { item: Mesa }) => {
-    console.log('🏠 RENDERIZANDO MESA:', item.numero, 'STATUS:', item.status);
-    const getStatusColor = (status: string) => {
-      switch (status) {
-        case 'livre': return '#4CAF50';
-        case 'ocupada': return '#F44336';
-        case 'reservada': return '#FF9800';
-        case 'manutencao': return '#9E9E9E';
-        default: return '#9E9E9E';
-      }
-    };
+    // Função para renderizar item da lista
+    const renderItem = ({ item }: { item: Mesa }) => {
+      // Logic for Merge Mode Check
+      const isTarget = mergeMode && mergeTarget?._id === item._id;
+      const isSource = mergeMode && mergeSources.find(m => m._id === item._id);
+      const isOccupied = item.status === 'ocupada';
+      
+      const getStatusColor = (status: string) => {
+        switch (status) {
+          case 'livre': return '#4CAF50';
+          case 'ocupada': return '#F44336';
+          case 'reservada': return '#FF9800';
+          case 'manutencao': return '#9E9E9E';
+          default: return '#9E9E9E';
+        }
+      };
 
-    const getStatusIcon = (status: string) => {
-      switch (status) {
-        case 'livre': return 'checkmark-circle';
-        case 'ocupada': return 'person';
-        case 'reservada': return 'time';
-        case 'manutencao': return 'construct';
-        default: return 'help-circle';
-      }
-    };
+      const getStatusIcon = (status: string) => {
+        switch (status) {
+          case 'livre': return 'checkmark-circle';
+          case 'ocupada': return 'person';
+          case 'reservada': return 'time';
+          case 'manutencao': return 'construct';
+          default: return 'help-circle';
+        }
+      };
 
-    const getStatusText = (status: string) => {
-      switch (status) {
-        case 'livre': return 'Livre';
-        case 'ocupada': return 'Ocupada';
-        case 'reservada': return 'Reservada';
-        case 'manutencao': return 'Manutenção';
-        default: return 'Desconhecido';
-      }
-    };
+      const getStatusText = (status: string) => {
+        switch (status) {
+          case 'livre': return 'Livre';
+          case 'ocupada': return 'Ocupada';
+          case 'reservada': return 'Reservada';
+          case 'manutencao': return 'Manutenção';
+          default: return 'Desconhecido';
+        }
+      };
 
-    return (
-      <View style={[styles.mesaCard, { borderLeftColor: getStatusColor(item.status) }]}>
-        <View style={styles.mesaHeader}>
-          <TouchableOpacity onPress={() => handleOpenReceiptMesa(item)}>
-            <Text style={[styles.mesaNumero, { textDecorationLine: 'underline', color: '#2196F3' }]}>
-                Mesa {item.numero}
-                {(item.nomeResponsavel || item.funcionarioResponsavel?.nome) &&
-                (() => {
-                    const id = String(item?._id ?? (item as any)?.id ?? '');
-                    const vt = item?.vendaAtual?.total;
-                    const mapData = id ? mesaOpenTotals[id] : undefined;
-                    const displayTotal = vt != null && Number(vt) > 0 ? Number(vt) : (mapData?.total || 0);
+      const handleCardPress = () => {
+        if (mergeMode) {
+          if (isOccupied) {
+            handleMergeSelect(item);
+          } else {
+             // Optional feedback
+          }
+        }
+      };
 
-                    const valorTotal = displayTotal.toFixed(2).replace('.', ',');
-                    
-                    let text = ``;
-                    if (displayTotal > 0) {
-                        text += ` - R$ ${valorTotal}`;
-                    }
-                    text += ` - Responsável: ${item.nomeResponsavel || item.funcionarioResponsavel?.nome}`;
-                    return text;
-                })()
-                }
-            </Text>
-          </TouchableOpacity>
-          <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) }]}>
-            <SafeIcon name={getStatusIcon(item.status)} size={12} color="#fff" fallbackText="•" />
-            <Text style={styles.statusText}>{getStatusText(item.status)}</Text>
+      return (
+        <TouchableOpacity 
+           activeOpacity={mergeMode ? 0.8 : 1}
+           onPress={mergeMode ? handleCardPress : undefined}
+           style={[
+              styles.mesaCard, 
+              { borderLeftColor: getStatusColor(item.status) },
+              isTarget && { borderColor: '#2196F3', borderWidth: 2, transform: [{scale: 1.02}], elevation: 8 },
+              isSource && { borderColor: '#FF9800', borderWidth: 2, transform: [{scale: 1.02}], elevation: 8 },
+              (mergeMode && !isOccupied) && { opacity: 0.5 }
+           ]}
+        >
+          <View style={styles.mesaHeader}>
+            <TouchableOpacity onPress={() => !mergeMode && handleOpenReceiptMesa(item)} disabled={mergeMode}>
+              <Text style={[styles.mesaNumero, { textDecorationLine: 'underline', color: '#2196F3' }]}>
+                  Mesa {item.numero}
+                  {(item.nomeResponsavel || item.funcionarioResponsavel?.nome) &&
+                  (() => {
+                      const id = String(item?._id ?? (item as any)?.id ?? '');
+                      const vt = item?.vendaAtual?.total;
+                      const mapData = id ? mesaOpenTotals[id] : undefined;
+                      const displayTotal = vt != null && Number(vt) > 0 ? Number(vt) : (mapData?.total || 0);
+
+                      const valorTotal = displayTotal.toFixed(2).replace('.', ',');
+                      
+                      let text = ``;
+                      if (displayTotal > 0) {
+                          text += ` - R$ ${valorTotal}`;
+                      }
+                      text += ` - Responsável: ${item.nomeResponsavel || item.funcionarioResponsavel?.nome}`;
+                      return text;
+                  })()
+                  }
+              </Text>
+            </TouchableOpacity>
+            
+            {/* Badges for Merge Mode */}
+            {isTarget && <View style={[styles.statusBadge, {backgroundColor: '#2196F3'}]}><Text style={styles.statusText}>PRINCIPAL</Text></View>}
+            {isSource && <View style={[styles.statusBadge, {backgroundColor: '#FF9800'}]}><Text style={styles.statusText}>JUNTAR</Text></View>}
+            
+            {!mergeMode && (
+              <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) }]}>
+                <SafeIcon name={getStatusIcon(item.status)} size={12} color="#fff" fallbackText="•" />
+                <Text style={styles.statusText}>{getStatusText(item.status)}</Text>
+              </View>
+            )}
           </View>
-        </View>
 
-        {/* Exibição explícita de valores financeiros se houver totais */}
-        {(() => {
-             const id = String(item?._id ?? (item as any)?.id ?? '');
-             const mapData = id ? mesaOpenTotals[id] : undefined;
-             const total = mapData?.total || 0;
-             const pago = mapData?.pago || 0;
-             
-             if (total > 0 && item.status === 'ocupada') {
-                 return (
-                     <View style={{ marginTop: 4, marginBottom: 8, paddingHorizontal: 4 }}>
-                         <Text style={{ fontSize: 14, fontWeight: 'bold', color: '#2196F3' }}>
-                           Total: R$ {total.toFixed(2).replace('.', ',')}
-                         </Text>
-                         {pago > 0 && (
-                           <>
-                             <Text style={{ fontSize: 13, color: '#4CAF50', marginTop: 2 }}>
-                               Já pago: R$ {pago.toFixed(2).replace('.', ',')}
-                             </Text>
-                             <Text style={{ fontSize: 13, color: '#F44336', fontWeight: 'bold', marginTop: 2 }}>
-                               Restante: R$ {Math.max(0, total - pago).toFixed(2).replace('.', ',')}
-                             </Text>
-                           </>
-                         )}
-                     </View>
-                 );
-             }
-             return null;
-        })()}
+          {/* Exibição explícita de valores financeiros se houver totais */}
+          {(() => {
+               const id = String(item?._id ?? (item as any)?.id ?? '');
+               const mapData = id ? mesaOpenTotals[id] : undefined;
+               const total = mapData?.total || 0;
+               const pago = mapData?.pago || 0;
+               
+               if (total > 0 && item.status === 'ocupada') {
+                   return (
+                       <View style={{ marginTop: 4, marginBottom: 8, paddingHorizontal: 4 }}>
+                           <Text style={{ fontSize: 14, fontWeight: 'bold', color: '#2196F3' }}>
+                             Total: R$ {total.toFixed(2).replace('.', ',')}
+                           </Text>
+                           {pago > 0 && (
+                             <>
+                               <Text style={{ fontSize: 13, color: '#4CAF50', marginTop: 2 }}>
+                                 Já pago: R$ {pago.toFixed(2).replace('.', ',')}
+                               </Text>
+                               <Text style={{ fontSize: 13, color: '#F44336', fontWeight: 'bold', marginTop: 2 }}>
+                                 Restante: R$ {Math.max(0, total - pago).toFixed(2).replace('.', ',')}
+                               </Text>
+                             </>
+                           )}
+                       </View>
+                   );
+               }
+               return null;
+          })()}
 
-        <View style={styles.mesaInfo}>
-          <View style={styles.infoRow}>
-            <SafeIcon name="people" size={16} color="#666" fallbackText="👥" />
-            <Text style={styles.infoText}>Capacidade: {item.capacidade} pessoas</Text>
-          </View>
-          
-
-          
-          {item.observacoes && (
+          <View style={styles.mesaInfo}>
             <View style={styles.infoRow}>
-              <SafeIcon name="document-text" size={16} color="#666" fallbackText="📄" />
-              <Text style={styles.infoText}>Obs: {item.observacoes}</Text>
+              <SafeIcon name="people" size={16} color="#666" fallbackText="👥" />
+              <Text style={styles.infoText}>Capacidade: {item.capacidade} pessoas</Text>
+            </View>
+            
+            {item.observacoes && (
+              <View style={styles.infoRow}>
+                <SafeIcon name="document-text" size={16} color="#666" fallbackText="📄" />
+                <Text style={styles.infoText}>Obs: {item.observacoes}</Text>
+              </View>
+            )}
+          </View>
+
+          {item.status === 'manutencao' && (
+            <View style={styles.maintenanceInfo}>
+              <SafeIcon name="warning" size={16} color="#FF9800" fallbackText="!" />
+              <Text style={styles.maintenanceText}>Mesa em manutenção</Text>
             </View>
           )}
-        </View>
 
-        {item.status === 'manutencao' && (
-          <View style={styles.maintenanceInfo}>
-            <SafeIcon name="warning" size={16} color="#FF9800" fallbackText="!" />
-            <Text style={styles.maintenanceText}>Mesa em manutenção</Text>
+          {/* Hide Action Buttons in Merge Mode */}
+          {!mergeMode && (
+          <View style={styles.actionButtons}>
+            <View style={styles.buttonRow}>
+              {item.status === 'livre' && (
+                <TouchableOpacity
+                  style={[styles.actionButton, styles.openButton]}
+                  onPress={() => abrirMesa(item)}
+                >
+                  <SafeIcon name="play" size={12} color="#fff" fallbackText="▶" />
+                  <Text style={styles.actionButtonText}>Abrir</Text>
+                </TouchableOpacity>
+              )}
+
+              {item.status === 'ocupada' && (
+                <>
+                  <TouchableOpacity
+                    style={[styles.actionButton, styles.addButton]}
+                    onPress={() => adicionarProdutos(item)}
+                  >
+                    <SafeIcon name="add" size={12} color="#fff" fallbackText="+" />
+                    <Text style={styles.actionButtonText}>Adicionar</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.actionButton, styles.closeButton]}
+                    onPress={() => {
+                      try {
+                        fecharModalFecharMesa(item);
+                      } catch (error) {}
+                    }}
+                  >
+                    <SafeIcon name="close-circle" size={12} color="#fff" fallbackText="×" />
+                    <Text style={styles.actionButtonText}>Fechar</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.actionButton, { backgroundColor: '#F44336' }]}
+                    onPress={() => iniciarCancelamentoMesa(item)}
+                  >
+                    <SafeIcon name="trash" size={12} color="#fff" fallbackText="🗑" />
+                    <Text style={styles.actionButtonText}>Cancelar</Text>
+                  </TouchableOpacity>
+                </>
+              )}
+
+              {item.status === 'reservada' && (
+                <TouchableOpacity
+                    style={[styles.actionButton, styles.releaseButton]}
+                    onPress={() => liberarMesa(item)}
+                  >
+                    <SafeIcon name="lock-open" size={12} color="#fff" fallbackText="🔓" />
+                    <Text style={styles.actionButtonText}>Liberar</Text>
+                  </TouchableOpacity>
+              )}
+            </View>
           </View>
-        )}
-
-        <View style={styles.actionButtons}>
-          <View style={styles.buttonRow}>
-            {item.status === 'livre' && (
-              <TouchableOpacity
-                style={[styles.actionButton, styles.openButton]}
-                onPress={() => abrirMesa(item)}
-              >
-                <SafeIcon name="play" size={12} color="#fff" fallbackText="▶" />
-                <Text style={styles.actionButtonText}>Abrir</Text>
-              </TouchableOpacity>
-            )}
-
-            {item.status === 'ocupada' && (
-              <>
-                <TouchableOpacity
-                  style={[styles.actionButton, styles.addButton]}
-                  onPress={() => adicionarProdutos(item)}
-                >
-                  <SafeIcon name="add" size={12} color="#fff" fallbackText="+" />
-                  <Text style={styles.actionButtonText}>Adicionar</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.actionButton, styles.closeButton]}
-                  onPress={() => {
-                    try {
-                      fecharModalFecharMesa(item);
-                    } catch (error) {}
-                  }}
-                >
-                  <SafeIcon name="close-circle" size={12} color="#fff" fallbackText="×" />
-                  <Text style={styles.actionButtonText}>Fechar</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.actionButton, { backgroundColor: '#F44336' }]}
-                  onPress={() => iniciarCancelamentoMesa(item)}
-                >
-                  <SafeIcon name="trash" size={12} color="#fff" fallbackText="🗑" />
-                  <Text style={styles.actionButtonText}>Cancelar</Text>
-                </TouchableOpacity>
-              </>
-            )}
-
-            {item.status === 'reservada' && (
-              <TouchableOpacity
-                  style={[styles.actionButton, styles.releaseButton]}
-                  onPress={() => liberarMesa(item)}
-                >
-                  <SafeIcon name="lock-open" size={12} color="#fff" fallbackText="🔓" />
-                  <Text style={styles.actionButtonText}>Liberar</Text>
-                </TouchableOpacity>
-            )}
-
-            
-          </View>
-        </View>
-      </View>
-    );
-  };
+          )}
+        </TouchableOpacity>
+      );
+    };
 
   if (loading) {
     return (
@@ -1223,6 +1347,9 @@ useEffect(() => {
               onPress={abrirModalCriarMesa}
               onPressIn={() => showTooltip('criar')}
               onPressOut={hideTooltip}
+              // @ts-ignore - Web only propertys
+              onMouseEnter={() => Platform.OS === 'web' && showTooltip('criar')}
+              onMouseLeave={() => Platform.OS === 'web' && hideTooltip()}
             >
               <SafeIcon name="add" size={16} color="#fff" fallbackText="+" />
             </TouchableOpacity>
@@ -1239,12 +1366,34 @@ useEffect(() => {
               onPress={gerarMesas}
               onPressIn={() => showTooltip('gerar')}
               onPressOut={hideTooltip}
+              // @ts-ignore - Web only propertys
+              onMouseEnter={() => Platform.OS === 'web' && showTooltip('gerar')}
+              onMouseLeave={() => Platform.OS === 'web' && hideTooltip()}
             >
               <SafeIcon name="add" size={20} color="#fff" fallbackText="+" />
             </TouchableOpacity>
             {tooltipVisible === 'gerar' && (
               <View style={[styles.tooltip, styles.tooltipVisible]}>
                 <Text style={styles.tooltipText}>Gerar várias mesas</Text>
+              </View>
+            )}
+          </View>
+
+          <View style={styles.tooltipContainer}>
+            <TouchableOpacity
+              style={[styles.headerButton, mergeMode && { backgroundColor: '#FF9800' }]}
+              onPress={toggleMergeMode}
+              onPressIn={() => showTooltip('merge')}
+              onPressOut={hideTooltip}
+              // @ts-ignore - Web only propertys
+              onMouseEnter={() => Platform.OS === 'web' && showTooltip('merge')}
+              onMouseLeave={() => Platform.OS === 'web' && hideTooltip()}
+            >
+              <SafeIcon name="albums" size={20} color="#fff" fallbackText="J" />
+            </TouchableOpacity>
+            {tooltipVisible === 'merge' && (
+              <View style={[styles.tooltip, styles.tooltipVisible]}>
+                <Text style={styles.tooltipText}>{mergeMode ? 'Cancelar Junção' : 'Juntar Mesas'}</Text>
               </View>
             )}
           </View>
@@ -1810,6 +1959,36 @@ useEffect(() => {
         sale={selectedReceiptSale}
         onClose={() => setReceiptModalVisible(false)} 
       />
+
+      {/* Footer Fixo para Modo de Junção */}
+      {mergeMode && (
+        <View style={styles.mergeFooter}>
+          <View style={styles.mergeInfo}>
+             <Text style={styles.mergeInfoText}>
+                {mergeTarget 
+                   ? `Principal: Mesa ${mergeTarget.numero}` 
+                   : 'Selecione a Mesa Principal'}
+             </Text>
+             <Text style={styles.mergeInfoSubText}>
+                {mergeSources.length > 0 
+                   ? `+ ${mergeSources.length} mesas para juntar (${mergeSources.map(m => m.numero).join(', ')})`
+                   : 'Selecione mesas para adicionar'}
+             </Text>
+          </View>
+          <View style={styles.mergeActions}>
+              <TouchableOpacity style={styles.mergeCancelButton} onPress={toggleMergeMode}>
+                  <Text style={styles.mergeButtonText}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                  style={[styles.mergeConfirmButton, (!mergeTarget || mergeSources.length === 0) && {opacity: 0.5}]} 
+                  onPress={handleMergeConfirm}
+                  disabled={!mergeTarget || mergeSources.length === 0}
+              >
+                  <Text style={styles.mergeButtonText}>Confirmar</Text>
+              </TouchableOpacity>
+          </View>
+        </View>
+      )}
     </View>
   );
 }
@@ -2324,5 +2503,54 @@ const styles = StyleSheet.create({
   dropdownItemTextSelected: {
     color: '#2196F3',
     fontWeight: '600',
+  },
+  // Merge Styles
+  mergeFooter: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: '#333',
+    padding: 16,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    elevation: 20,
+    zIndex: 9999,
+    borderTopWidth: 1,
+    borderTopColor: '#555',
+  },
+  mergeInfo: {
+    flex: 1,
+    marginRight: 10,
+  },
+  mergeInfoText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
+  mergeInfoSubText: {
+    color: '#ccc',
+    fontSize: 12,
+  },
+  mergeActions: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  mergeCancelButton: {
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    backgroundColor: '#666',
+    borderRadius: 8,
+  },
+  mergeConfirmButton: {
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    backgroundColor: '#2196F3',
+    borderRadius: 8,
+  },
+  mergeButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
   },
 });
