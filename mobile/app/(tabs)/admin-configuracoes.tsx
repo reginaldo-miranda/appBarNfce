@@ -16,7 +16,7 @@ import {
 
 
 import { SafeIcon } from '../../components/SafeIcon';
-import { employeeService, userService, companyService } from '../../src/services/api';
+import { employeeService, userService, companyService, idleTimeConfigService } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
 import ScreenIdentifier from '../../src/components/ScreenIdentifier';
 import { useNavigation } from '@react-navigation/native';
@@ -56,6 +56,20 @@ export default function AdminConfiguracoesScreen() {
   const [companyModalVisible, setCompanyModalVisible] = useState(false);
   const [companyData, setCompanyData] = useState<any>({});
   const [loadingCompany, setLoadingCompany] = useState(false);
+
+  // States para Controle de Cores (Tempo sem consumo)
+  const [idleTimeModalVisible, setIdleTimeModalVisible] = useState(false);
+  const [idleConfig, setIdleConfig] = useState<any>({
+    ativo: false,
+    usarHoraInclusao: true,
+    estagios: [
+      { tempo: "00:15:00", cor: "#FFFF00" },
+      { tempo: "00:30:00", cor: "#FFA500" },
+      { tempo: "00:45:00", cor: "#FF4500" },
+      { tempo: "01:00:00", cor: "#FF0000" },
+    ]
+  });
+  const [loadingIdleConfig, setLoadingIdleConfig] = useState(false);
 
   const navigation = useNavigation();
 
@@ -116,6 +130,50 @@ export default function AdminConfiguracoesScreen() {
     } finally {
 
       setLoadingCompany(false);
+    }
+  };
+
+  const loadIdleConfig = async () => {
+    try {
+      setLoadingIdleConfig(true);
+      const response = await idleTimeConfigService.get();
+      // Garante que estagios seja array se vier string
+      let d = response.data;
+      if (d && typeof d.estagios === 'string') {
+        try { d.estagios = JSON.parse(d.estagios); } catch {}
+      }
+      setIdleConfig(d || {
+        ativo: false,
+        usarHoraInclusao: true,
+        estagios: [
+          { tempo: "00:15:00", cor: "#FFFF00" },
+          { tempo: "00:30:00", cor: "#FFA500" },
+          { tempo: "00:45:00", cor: "#FF4500" },
+          { tempo: "01:00:00", cor: "#FF0000" },
+        ]
+      });
+      setIdleTimeModalVisible(true);
+    } catch (error) {
+      console.error('Erro ao carregar config de tempo:', error);
+      const msg = 'Não foi possível carregar as configurações de tempo.';
+      if (Platform.OS === 'web') window.alert(msg);
+      else Alert.alert('Erro', msg);
+    } finally {
+      setLoadingIdleConfig(false);
+    }
+  };
+
+  const handleSaveIdleConfig = async () => {
+    try {
+       setLoadingIdleConfig(true);
+       await idleTimeConfigService.save(idleConfig);
+       Alert.alert('Sucesso', 'Configuração de tempo salva com sucesso!');
+       setIdleTimeModalVisible(false);
+    } catch (error) {
+       console.error('Erro ao salvar config de tempo:', error);
+       Alert.alert('Erro', 'Não foi possível salvar a configuração.');
+    } finally {
+       setLoadingIdleConfig(false);
     }
   };
 
@@ -459,6 +517,27 @@ export default function AdminConfiguracoesScreen() {
               <SafeIcon name="chevron-forward" size={20} color="#ccc" fallbackText="›" />
             </TouchableOpacity>
             
+
+
+            <TouchableOpacity 
+              style={[styles.settingItem, loadingIdleConfig && { opacity: 0.5 }]}
+              onPress={loadIdleConfig}
+              disabled={loadingIdleConfig}
+            >
+              <View style={styles.settingContent}>
+                <SafeIcon name="timer" size={24} color="#F44336" fallbackText="⏱" />
+                <View style={styles.settingInfo}>
+                  <Text style={styles.settingTitle}>
+                    Tempo sem Consumo {loadingIdleConfig ? '(Carregando...)' : ''}
+                  </Text>
+                  <Text style={styles.settingDescription}>
+                    Configurar cores por tempo de inatividade
+                  </Text>
+                </View>
+              </View>
+              {loadingIdleConfig ? <ActivityIndicator size="small" color="#F44336" /> : <SafeIcon name="chevron-forward" size={20} color="#ccc" fallbackText="›" />}
+            </TouchableOpacity>
+
             <TouchableOpacity 
               style={styles.settingItem}
               onPress={() => navigation.navigate('TestScreen' as never)}
@@ -734,6 +813,99 @@ export default function AdminConfiguracoesScreen() {
           </ScrollView>
         </View>
       </Modal>
+
+      {/* Modal de Configuração de Tempo Sem Consumo */}
+      <Modal
+        visible={idleTimeModalVisible}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setIdleTimeModalVisible(false)}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <TouchableOpacity onPress={() => setIdleTimeModalVisible(false)}>
+              <Text style={styles.cancelButton}>Voltar</Text>
+            </TouchableOpacity>
+            <Text style={styles.modalTitle}>Tempo sem Consumo</Text>
+            <TouchableOpacity onPress={handleSaveIdleConfig}>
+              <Text style={styles.saveButton}>Salvar</Text>
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView style={styles.modalContent}>
+            <View style={styles.switchRow}>
+                <Text style={styles.inputLabel}>Utilizar tempo sem consumo</Text>
+                <Switch value={idleConfig.ativo} onValueChange={(v) => setIdleConfig({...idleConfig, ativo: v})} />
+            </View>
+
+             <View style={[styles.switchRow, { opacity: idleConfig.ativo ? 1 : 0.5 }]}>
+                <Text style={styles.inputLabel}>Utilizar hora de inclusão</Text>
+                <Switch 
+                  value={idleConfig.usarHoraInclusao} 
+                  onValueChange={(v) => setIdleConfig({...idleConfig, usarHoraInclusao: v})} 
+                  disabled={!idleConfig.ativo}
+                  trackColor={{false: '#ccc', true: '#2196F3'}}
+                />
+            </View>
+             <Text style={styles.helperText}>
+               Se marcado, usa a hora de abertura quando não houver pedidos. Caso contrário, só conta após o primeiro pedido.
+             </Text>
+
+            <Text style={[styles.sectionHeader, { marginTop: 20 }]}>Estágios de Tempo e Cores</Text>
+            {idleConfig.estagios && idleConfig.estagios.map((estagio: any, index: number) => (
+               <View key={index} style={[styles.estagioRow, { opacity: idleConfig.ativo ? 1 : 0.5 }]}>
+                  <Text style={styles.estagioLabel}>Estágio {index + 1}:</Text>
+                  
+                  <View style={styles.timeInputContainer}>
+                     <TextInput
+                       style={styles.timeInput}
+                       value={estagio.tempo}
+                       onChangeText={(text) => {
+                         const newEstagios = [...idleConfig.estagios];
+                         newEstagios[index].tempo = text;
+                         setIdleConfig({...idleConfig, estagios: newEstagios});
+                       }}
+                       placeholder="HH:MM:SS"
+                       maxLength={8}
+                       editable={idleConfig.ativo}
+                     />
+                  </View>
+
+                  <Text style={{marginHorizontal: 8}}>Cor</Text>
+                  <View style={styles.colorPickerContainer}>
+                      <TextInput
+                          style={[styles.colorInput, { backgroundColor: estagio.cor }]}
+                           value={estagio.cor}
+                           onChangeText={(text) => {
+                             const newEstagios = [...idleConfig.estagios];
+                             newEstagios[index].cor = text;
+                             setIdleConfig({...idleConfig, estagios: newEstagios});
+                           }}
+                           editable={idleConfig.ativo}
+                      />
+                       {/* Predefined Colors Dropdown could go here, for now simple hex input or preset list */}
+                      <View style={styles.colorPresets}>
+                          {['#FFFF00', '#FFA500', '#FF4500', '#FF0000', '#4CAF50', '#2196F3'].map(c => (
+                              <TouchableOpacity 
+                                  key={c}
+                                  style={[styles.colorPreset, { backgroundColor: c }]}
+                                  onPress={() => {
+                                      if(!idleConfig.ativo) return;
+                                      const newEstagios = [...idleConfig.estagios];
+                                      newEstagios[index].cor = c;
+                                      setIdleConfig({...idleConfig, estagios: newEstagios});
+                                  }}
+                              />
+                          ))}
+                      </View>
+                  </View>
+               </View>
+            ))}
+
+            <View style={{height: 50}} />
+          </ScrollView>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -798,6 +970,71 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: '#333',
   },
+  helperText: {
+    fontSize: 12,
+    color: '#666',
+    marginLeft: 16,
+    marginBottom: 10,
+    marginTop: -8,
+  },
+  estagioRow: {
+    flexDirection: 'column',
+    marginBottom: 16,
+    backgroundColor: '#fff',
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#eee'
+  },
+  estagioLabel: {
+    fontWeight: 'bold',
+    marginBottom: 8,
+    fontSize: 14, 
+    color: '#333'
+  },
+  timeInputContainer: {
+      marginBottom: 8
+  },
+  timeInput: {
+      borderWidth: 1,
+      borderColor: '#ccc',
+      borderRadius: 4,
+      padding: 8,
+      fontSize: 16,
+      width: 120,
+      textAlign: 'center'
+  },
+  colorPickerContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      flexWrap: 'wrap',
+      gap: 8
+  },
+  colorInput: {
+       borderWidth: 1,
+       borderColor: '#ccc',
+       borderRadius: 4,
+       padding: 8,
+       width: 100,
+       textAlign: 'center',
+       color: '#fff',
+       textShadowColor: 'rgba(0,0,0,0.5)',
+       textShadowOffset: { width: 1, height: 1 },
+       textShadowRadius: 1,
+       fontWeight: 'bold'
+  },
+  colorPresets: {
+      flexDirection: 'row',
+      gap: 5
+  },
+  colorPreset: {
+      width: 30,
+      height: 30,
+      borderRadius: 15,
+      borderWidth: 1,
+      borderColor: '#ddd'
+  },
+
   userCard: {
     backgroundColor: '#fff',
     marginHorizontal: 16,

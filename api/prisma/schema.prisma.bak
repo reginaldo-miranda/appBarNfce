@@ -631,5 +631,5 @@ model IdleTimeConfig {
   estagios         Json     // Array de { tempo: string, cor: string }
   updatedAt        DateTime @updatedAt
 
-  @@map("idletimeconfig")
+  @@map("IdleTimeConfig")
 }

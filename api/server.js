@@ -60,6 +60,7 @@ import printerRoutes from "./routes/printer.js";
 import variationTypeRoutes from "./routes/variationType.js";
 import nfceRoutes from "./routes/nfce.js";
 import systemRoutes from "./routes/system.js";
+import idleTimeConfigRoutes from "./routes/idleTimeConfig.js";
 
 // dotenv configured at top
 
@@ -268,6 +269,7 @@ app.use("/api/setores", authenticate, setoresRoutes);
 app.use("/api/printer", authenticate, printerRoutes);
 app.use("/api/nfce", nfceRoutes);
 app.use("/api/system", systemRoutes); // Public for setup
+app.use("/api/idle-time-config", authenticate, idleTimeConfigRoutes);
 
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, '0.0.0.0', () => console.log(`✅ API rodando em: http://0.0.0.0:${PORT}`));
@@ -322,6 +324,9 @@ prisma.$connect()
     );
     await prisma.$executeRawUnsafe(
       "ALTER TABLE `SaleItem` ADD COLUMN IF NOT EXISTS `variacaoRegraPreco` ENUM('mais_caro','media','fixo') NULL;"
+    );
+     await prisma.$executeRawUnsafe(
+      "CREATE TABLE IF NOT EXISTS `idletimeconfig` (\n        `id` INTEGER NOT NULL AUTO_INCREMENT,\n        `ativo` TINYINT(1) NOT NULL DEFAULT 0,\n        `usarHoraInclusao` TINYINT(1) NOT NULL DEFAULT 1,\n        `estagios` JSON NOT NULL,\n        `updatedAt` DATETIME(3) NOT NULL,\n        PRIMARY KEY (`id`)\n      ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
     );
   } catch {}
 })();

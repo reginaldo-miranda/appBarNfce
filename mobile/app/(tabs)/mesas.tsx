@@ -18,7 +18,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router } from 'expo-router';
 
 import { SafeIcon } from '../../components/SafeIcon';
-import { mesaService, saleService, employeeService, getWsUrl, authService } from '../../src/services/api';
+import { mesaService, saleService, employeeService, getWsUrl, authService, idleTimeConfigService } from '../../src/services/api';
 import { STORAGE_KEYS } from '../../src/services/storage';
   import ProductSelector from '../../src/components/ProductSelector.js';
   import { useAuth } from '../../src/contexts/AuthContext';
@@ -54,6 +54,16 @@ interface Mesa {
   };
 }
 
+function parseTimeToMs(timeStr: string) {
+  if (!timeStr) return 0;
+  const parts = timeStr.split(':').map(Number);
+  let ms = 0;
+  if (parts.length >= 1) ms += parts[0] * 3600000;
+  if (parts.length >= 2) ms += parts[1] * 60000;
+  if (parts.length >= 3) ms += parts[2] * 1000;
+  return ms;
+}
+
 export default function MesasScreen() {
   const { user } = useAuth();
   const [mesas, setMesas] = useState<Mesa[]>([]);
@@ -63,6 +73,9 @@ export default function MesasScreen() {
   const [selectedStatus, setSelectedStatus] = useState<string | null>(null);
   const [mesaOpenTotals, setMesaOpenTotals] = useState<Record<string, { total: number; pago: number }>>({});
   const [realtimeConnected, setRealtimeConnected] = useState(false);
+  
+  const [idleConfig, setIdleConfig] = useState<any>(null);
+  const [mesaIdleStatus, setMesaIdleStatus] = useState<Record<string, string>>({});
   
   // Estados para modais
   const [gerarMesasModalVisible, setGerarMesasModalVisible] = useState(false);
@@ -260,6 +273,13 @@ export default function MesasScreen() {
   useEffect(() => {
     loadMesas();
     loadFuncionarios();
+    idleTimeConfigService.get().then(res => {
+      let d = res.data;
+      if (d && typeof d.estagios === 'string') {
+          try { d.estagios = JSON.parse(d.estagios); } catch {}
+      }
+      setIdleConfig(d);
+    }).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -358,7 +378,8 @@ export default function MesasScreen() {
   useEffect(() => {
     try {
       const ocupadas = (Array.isArray(mesas) ? mesas : []).filter((m) => m?.status === 'ocupada');
-      ocupadas.forEach(async (m) => {
+      
+      const calcPromises = ocupadas.map(async (m) => {
         const idStr = String(m?._id ?? (m as any)?.id ?? '');
         if (!idStr) return;
         try {
@@ -368,14 +389,55 @@ export default function MesasScreen() {
           const itens = Array.isArray(aberta?.itens) ? aberta.itens : [];
           const total = itens.reduce((sum: number, it: any) => sum + Number(it?.subtotal ?? (Number(it?.quantidade) * Number(it?.precoUnitario))), 0);
           const pago = (aberta?.caixaVendas || []).reduce((acc: number, cv: any) => acc + (Number(cv.valor) || 0), 0);
+          
+          // Lógica de Cor (Tempo Ocioso)
+          let color = '';
+          if (aberta && idleConfig && idleConfig.ativo) {
+             let baseTime = 0;
+             if (itens.length > 0) {
+                 const times = itens.map((it: any) => new Date(it.createdAt || it.updatedAt || Date.now()).getTime());
+                 baseTime = Math.max(...times);
+             } else if (idleConfig.usarHoraInclusao && aberta.createdAt) {
+                 baseTime = new Date(aberta.createdAt).getTime();
+             }
+
+             if (baseTime > 0) {
+                 const diff = Date.now() - baseTime;
+                 if (Array.isArray(idleConfig.estagios)) {
+                     const sorted = [...idleConfig.estagios].sort((a: any, b: any) => parseTimeToMs(a.tempo) - parseTimeToMs(b.tempo));
+                     for (const est of sorted) {
+                         if (diff >= parseTimeToMs(est.tempo)) {
+                             color = est.cor;
+                         }
+                     }
+                 }
+             }
+          }
+
           const idNum = Number((m as any)?.id || 0);
           const k1 = idStr;
           const k2 = idNum ? String(idNum) : undefined;
+          
           setMesaOpenTotals((prev) => ({ ...prev, [k1]: { total, pago }, ...(k2 ? { [k2]: { total, pago } } : {}) }));
+          if (color) {
+             setMesaIdleStatus((prev) => ({ ...prev, [k1]: color, ...(k2 ? { [k2]: color } : {}) }));
+          } else {
+             // Limpar cor se não aplicar (ou manter livre se mudar status)
+             setMesaIdleStatus((prev) => {
+                 const n = {...prev};
+                 delete n[k1];
+                 if(k2) delete n[k2];
+                 return n;
+             });
+          }
+
         } catch {}
       });
+      // Executar calcPromises em paralelo ou sequencial? Paralelo é melhor mas cuidado com carga
+      Promise.all(calcPromises);
+
     } catch {}
-  }, [mesas]);
+  }, [mesas, idleConfig]);
 
   async function loadFuncionarios() {
     try {
@@ -1135,6 +1197,7 @@ useEffect(() => {
            style={[
               styles.mesaCard, 
               { borderLeftColor: getStatusColor(item.status) },
+              isOccupied && mesaIdleStatus[item._id] && { backgroundColor: mesaIdleStatus[item._id] },
               isTarget && { borderColor: '#2196F3', borderWidth: 2, transform: [{scale: 1.02}], elevation: 8 },
               isSource && { borderColor: '#FF9800', borderWidth: 2, transform: [{scale: 1.02}], elevation: 8 },
               (mergeMode && !isOccupied) && { opacity: 0.5 }

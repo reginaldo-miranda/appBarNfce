@@ -5,7 +5,7 @@ import { router, useFocusEffect } from 'expo-router';
 import CriarComandaModal from '../../src/components/CriarComandaModal';
 // import ProdutosComandaModal from '../../src/components/ProdutosComandaModal';
 import SearchAndFilter from '../../src/components/SearchAndFilter';
-import { comandaService, employeeService, saleService, getWsUrl, authService } from '../../src/services/api';
+import { comandaService, employeeService, saleService, getWsUrl, authService, idleTimeConfigService } from '../../src/services/api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '../../src/services/storage';
 import { useAuth } from '../../src/contexts/AuthContext';
@@ -16,6 +16,16 @@ import PasswordConfirmModal from '../../src/components/PasswordConfirmModal';
 import ReceiptModal from '../../src/components/ReceiptModal';
 import { SafeIcon } from '../../components/SafeIcon';
 
+function parseTimeToMs(timeStr: string) {
+  if (!timeStr) return 0;
+  const parts = timeStr.split(':').map(Number);
+  let ms = 0;
+  if (parts.length >= 1) ms += parts[0] * 3600000;
+  if (parts.length >= 2) ms += parts[1] * 60000;
+  if (parts.length >= 3) ms += parts[2] * 1000;
+  return ms;
+}
+
 export default function ComandasAbertasScreen() {
   const [modalVisible, setModalVisible] = useState(false);
   // Estados de modal de produtos removidos após migração para SaleScreen
@@ -25,6 +35,8 @@ export default function ComandasAbertasScreen() {
   const [filteredComandas, setFilteredComandas] = useState<Comanda[]>([]);
   const [loading, setLoading] = useState(true);
   const [realtimeConnected, setRealtimeConnected] = useState(false);
+  const [idleConfig, setIdleConfig] = useState<any>(null);
+  const [comandaIdleStatus, setComandaIdleStatus] = useState<Record<string, string>>({});
   
   // Estados para fechamento de comanda (idêntico às mesas)
   const [fecharComandaModalVisible, setFecharComandaModalVisible] = useState(false);
@@ -66,7 +78,48 @@ export default function ComandasAbertasScreen() {
 
   useEffect(() => {
     loadStatusFilters();
+    idleTimeConfigService.get().then(res => {
+        let d = res.data;
+        if (d && typeof d.estagios === 'string') {
+            try { d.estagios = JSON.parse(d.estagios); } catch {}
+        }
+        setIdleConfig(d);
+    }).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (!idleConfig || !idleConfig.ativo) {
+        setComandaIdleStatus({});
+        return;
+    }
+    
+    const newStatus: Record<string, string> = {};
+    (comandas || []).forEach((c: any) => { 
+      const id = String(c._id || c.id);
+      if (c.status !== 'aberta') return;
+
+      let baseTime = 0;
+      if (c.itens && c.itens.length > 0) {
+          const times = c.itens.map((it: any) => new Date(it.createdAt || it.updatedAt || Date.now()).getTime());
+          baseTime = Math.max(...times);
+      } else if (idleConfig.usarHoraInclusao && c.createdAt) {
+          baseTime = new Date(c.createdAt).getTime();
+      }
+
+      if (baseTime > 0) {
+           const diff = Date.now() - baseTime;
+           if (Array.isArray(idleConfig.estagios)) {
+               const sorted = [...idleConfig.estagios].sort((a: any, b: any) => parseTimeToMs(a.tempo) - parseTimeToMs(b.tempo));
+               for (const est of sorted) {
+                   if (diff >= parseTimeToMs(est.tempo)) {
+                       newStatus[id] = est.cor;
+                   }
+               }
+           }
+      }
+    });
+    setComandaIdleStatus(newStatus);
+  }, [comandas, idleConfig]);
 
   useEffect(() => {
     const w = Dimensions.get('window').width;
@@ -537,7 +590,10 @@ useEffect(() => {
           keyExtractor={(item) => item._id}
           renderItem={({ item }) => {
             return (
-            <View style={styles.comandaItem}>
+            <View style={[
+                  styles.comandaItem,
+                  item.status === 'aberta' && comandaIdleStatus[item._id] && { backgroundColor: comandaIdleStatus[item._id] }
+                 ]}>
               <TouchableOpacity 
                 style={styles.comandaContent}
                 onPress={() => handleOpenProdutosModal(item)}

@@ -649,6 +649,11 @@ export const userService = {
   delete: (id) => api.delete(`/user/${id}`),
 };
 
+export const idleTimeConfigService = {
+  get: () => api.get('/idle-time-config'),
+  save: (data) => api.post('/idle-time-config', data),
+};
+
 // Serviço de sistema para controle da aplicação e servidor
 export const systemService = {
   shutdown: () => api.post('/auth/shutdown'),
