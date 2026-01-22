@@ -26,6 +26,7 @@ export interface Sale {
   itens: CartItem[];
   observacoes?: string;
   total: number;
+  desconto?: number;
   caixaVendas?: any[];
   isDelivery?: boolean;
   deliveryAddress?: string;

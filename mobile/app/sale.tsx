@@ -38,6 +38,7 @@ import { events } from '../src/utils/eventBus';
 import PaymentSplitModal from '../src/components/PaymentSplitModal';
 import ImpressaoNfceModal from '../src/components/ImpressaoNfceModal';
 import NfceService from '../src/services/NfceService';
+import PaymentPromptModal from '../src/components/PaymentPromptModal';
 
 
 export default function SaleScreen() {
@@ -77,6 +78,12 @@ export default function SaleScreen() {
         setNfceStatus('success');
         setNfceMessage('NFC-e emitida com sucesso!');
         setNfceData(res);
+        // Explicit success alert for delivery/general flow as requested
+        if (Platform.OS === 'web') {
+           window.alert('Cupom Fiscal emitido com sucesso!');
+        } else {
+           Alert.alert('Sucesso', 'Cupom Fiscal emitido com sucesso!');
+        }
       } else {
         setNfceStatus('error');
         // Prioritize 'motivo' from DB/Sefaz, then 'message', then 'error'
@@ -129,6 +136,9 @@ export default function SaleScreen() {
 
   const [showRegisterModal, setShowRegisterModal] = useState(false);
   const [registerForm, setRegisterForm] = useState({ nome: '', fone: '', endereco: '', cidade: '', estado: '' });
+
+  // Payment Prompt Modal State
+  const [paymentPromptVisible, setPaymentPromptVisible] = useState(false);
 
 
   // API Key for Maps
@@ -1420,9 +1430,7 @@ export default function SaleScreen() {
             user={user}
             loading={loading}
             GOOGLE_API_KEY={googleMapsKey}
-            onConfirm={async (emitirNfce: boolean) => {
-
-                // Copied updated logic with recovery
+            onConfirm={async () => {
                 if(!deliveryAddress) { 
                     Platform.OS === 'web' ? window.alert('Endereço obrigatório') : Alert.alert('Erro', 'Endereço obrigatório'); 
                     return; 
@@ -1434,16 +1442,12 @@ export default function SaleScreen() {
                     // Robust handling of ID
                     let currentSaleId = sale?._id || (sale?.id ? String(sale?.id) : undefined);
 
-                    // 1. Atualiza dados de delivery no backend PRIMEIRO
-
-
-                    // Auto-recovery: Se não tem ID de venda mas tem itens, cria agora
+                    // Auto-recovery: If no sale ID but items exist, create it
                     if (!currentSaleId && cart.length > 0) {
                         try {
                             const createRes = await saleService.create({ type: 'balcao' });
                             if (createRes.data && (createRes.data._id || createRes.data.id)) {
                                 currentSaleId = createRes.data._id || String(createRes.data.id);
-                                // Adiciona itens
                                 for (const item of cart) {
                                     const pId = item.productId || (item.produto && (item.produto._id || item.produto.id));
                                     if (pId) {
@@ -1453,7 +1457,6 @@ export default function SaleScreen() {
                                         });
                                     }
                                 }
-                                // Atualiza estado local
                                 const freshSale = await saleService.getById(currentSaleId);
                                 setSale(freshSale.data);
                             }
@@ -1467,55 +1470,35 @@ export default function SaleScreen() {
                         return;
                     }
 
-                    // 1. Atualiza dados de delivery no backend PRIMEIRO
-                    if (currentSaleId) {
-                        await saleService.updateDelivery(currentSaleId, {
-                            isDelivery: true,
-                            deliveryAddress,
-                            deliveryDistance,
-                            deliveryFee,
-                            // Se tem cliente selecionado, vincula ele
-                            clienteId: selectedCliente?.id || selectedCliente?._id,
-                            entregadorId: selectedEntregador?.id || selectedEntregador?._id,
-                            funcionarioId: user?.id
-                        });
-                    }
+                    // 1. Atualizar dados de delivery no backend (Sempre acontece primeiro)
+                    await saleService.updateDelivery(currentSaleId, {
+                        isDelivery: true,
+                        deliveryAddress,
+                        deliveryDistance,
+                        deliveryFee,
+                        clienteId: selectedCliente?.id || selectedCliente?._id,
+                        entregadorId: selectedEntregador?.id || selectedEntregador?._id,
+                        funcionarioId: user?.id
+                    });
 
-                    // 2. Fluxo Dividido
-                    if (emitirNfce) {
-                        // CASO SIM: Abrir tela de fechamento (Pagamento)
-                        setDeliveryModalVisible(false);
-                        setModalVisible(true); // Abre modal de fechamento padrão
-                        
-                    } else {
-                        // CASO NÃO: Finalizar e Imprimir Cupom de Entrega Apenas
-                        
-                        // Finaliza venda (atualiza status e fecha)
-                        await saleService.finalize(currentSaleId, {
-                            formaPagamento: 'diversos', 
-                            total: totalItems + deliveryFee
-                        });
-                        
-                        // Imprime Cupom de Entrega
-                        try {
-                            const sid = currentSaleId;
-                            const printRes = await api.post(`/sale/${sid}/delivery-print`);
-                            if (printRes.data && printRes.data.content) {
-                                printHtmlContent(printRes.data.content);
-                            }
-                        } catch (e) {
-                            console.error('Erro impressão entrega:', e);
-                            const msg = 'Falha ao imprimir comprovante de entrega.';
-                            Platform.OS === 'web' ? window.alert(msg) : Alert.alert('Erro', msg);
+                    setDeliveryModalVisible(false);
+
+                    // 2. Imprimir Cupom de Entrega AUTOMATICAMENTE (User Request)
+                    try {
+                        const sid = currentSaleId;
+                        const printRes = await api.post(`/sale/${sid}/delivery-print`);
+                        if (printRes.data && printRes.data.content) {
+                            printHtmlContent(printRes.data.content);
                         }
-
-                        setDeliveryModalVisible(false);
-                        router.replace('/delivery-dashboard'); 
-                        const sucMsg = 'Entrega lançada com sucesso!';
-                        Platform.OS === 'web' ? console.log(sucMsg) : Alert.alert('Sucesso', sucMsg);
+                    } catch (e) {
+                        console.error('Erro impressão entrega:', e);
+                        const msg = 'Falha ao imprimir comprovante de entrega.';
+                        Platform.OS === 'web' ? window.alert(msg) : Alert.alert('Erro', msg);
                     }
 
-
+                    // 3. Perguntar se deseja pagar AGORA - Via Custom Modal
+                    // Remover delay e setar visibilidade do modal
+                    setPaymentPromptVisible(true);
 
                 } catch(e: any) {
                     const msg = e.response?.data?.error || e.message || 'Erro ao processar delivery';
@@ -1525,6 +1508,21 @@ export default function SaleScreen() {
                 }
             }}
         />
+
+      <PaymentPromptModal
+        visible={paymentPromptVisible}
+        onClose={() => setPaymentPromptVisible(false)}
+        onYes={() => {
+            setPaymentPromptVisible(false);
+            setSplitModalVisible(true);
+        }}
+        onNo={() => {
+             setPaymentPromptVisible(false);
+             router.replace('/delivery-dashboard'); 
+             const sucMsg = 'Entrega lançada! Pagamento pendente.';
+             Platform.OS === 'web' ? window.alert(sucMsg) : Alert.alert('Sucesso', sucMsg);
+        }}
+      />
 
 
 

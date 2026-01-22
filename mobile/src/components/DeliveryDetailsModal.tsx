@@ -42,7 +42,7 @@ interface DeliveryDetailsModalProps {
     user: any; // attendant
 
     // Actions
-    onConfirm: (emitirNfce: boolean) => void;
+    onConfirm: () => void;
     loading: boolean;
     
     // Config
@@ -77,11 +77,268 @@ const DeliveryDetailsModal: React.FC<DeliveryDetailsModalProps> = ({
     const [addressList, setAddressList] = useState<any[]>([]);
     const [loadingList, setLoadingList] = useState(false);
     
-    // State for NFC-e
-    const [emitirNfce, setEmitirNfce] = useState(true);
+
+    
+    
+    // Auto-search when client is selected (if address is present)
+
+
+    // Refactored Search Logic to be reusable
+
+
+
     
     // ... existing handleCepSearch ...
     
+    // Auto-search when client is selected (if address is present)
+    useEffect(() => {
+        if (selectedCliente && selectedCliente.endereco && isDelivery) {
+            if (deliveryAddress && deliveryAddress.length > 5) {
+                triggerSearch();
+            }
+        }
+    }, [selectedCliente]); 
+
+    const triggerSearch = async (addressOverride?: string) => {
+        const addressToUse = addressOverride || deliveryAddress;
+
+        if (!addressToUse) {
+            Platform.OS === 'web' ? window.alert('Digite um endereço.') : Alert.alert('Atenção', 'Digite um endereço.');
+            return;
+        }
+
+        if (!companyConfig?.latitude || !companyConfig?.longitude) {
+            Platform.OS === 'web' ? window.alert('Endereço da loja não configurado.') : Alert.alert('Configuração Pendente', 'Endereço da loja não configurado.');
+            return;
+        }
+
+        const doGoogleGeocode = async (addr: string) => {
+            if (!GOOGLE_API_KEY) return null;
+            try {
+                const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(addr)}&key=${GOOGLE_API_KEY}`;
+                const res = await fetch(url);
+                const json = await res.json();
+                if (json.status === 'OK' && json.results.length > 0) {
+                    return json.results[0];
+                }
+            } catch (e) {
+                console.error('Google Geocode Error:', e);
+            }
+            return null;
+        };
+
+        // Tentar Google Geocoding Primeiro
+        if (GOOGLE_API_KEY) {
+            const googleResult = await doGoogleGeocode(addressToUse);
+            if (googleResult) {
+                const { lat, lng } = googleResult.geometry.location;
+                const formattedAddress = googleResult.formatted_address;
+                
+                setDeliveryAddress(formattedAddress);
+                setDeliveryCoords({ lat, lng });
+                
+                const straightLine = calculateDistance(Number(companyConfig.latitude), Number(companyConfig.longitude), lat, lng);
+                const estRoadDist = parseFloat((straightLine * 1.3).toFixed(2));
+                setDeliveryDistance(estRoadDist);
+
+                // SILENT SUCCESS (User Request: "creio que nao precsia mais das tela de aviso")
+                // Only log or show small toast if possible. For now, silent.
+                console.log(`[Google] Found: ${formattedAddress} (${estRoadDist}km)`);
+
+                // Rota Real
+                fetchDrivingDistance(Number(companyConfig.latitude), Number(companyConfig.longitude), lat, lng).then(realDist => {
+                    if (realDist !== null) {
+                        setDeliveryDistance(realDist);
+                    }
+                });
+                return; // Sai se achou pelo Google
+            }
+        }
+
+        const doSearch = async (addr: string) => {
+            const query = encodeURIComponent(addr);
+            const url = `https://nominatim.openstreetmap.org/search?format=json&q=${query}&limit=1&countrycodes=br`;
+            const res = await fetch(url, { headers: { 'User-Agent': 'BarApp/1.0 (admin@barapp.com)' }});
+            return await res.json();
+        };
+
+        const doStructuredSearch = async (street: string, city: string, state: string) => {
+            const params = new URLSearchParams();
+            params.append('street', street);
+            if (city) params.append('city', city);
+            if (state) params.append('state', state);
+            params.append('countrycodes', 'br');
+            params.append('format', 'json');
+            params.append('limit', '1');
+            
+            const url = `https://nominatim.openstreetmap.org/search?${params.toString()}`;
+            const res = await fetch(url, { headers: { 'User-Agent': 'BarApp/1.0 (admin@barapp.com)' }});
+            return await res.json();
+        };
+
+        const normalizeAddress = (addr: string) => {
+            return addr
+                .replace(/\bCap\b\.?/gi, 'Capitão') 
+                .replace(/\bCapitao\b/gi, 'Capitão')
+                .replace(/\bDr\b\.?/gi, 'Doutor')
+                .replace(/\bProf\b\.?/gi, 'Professor')
+                .replace(/\bAv\b\.?/gi, 'Avenida')
+                .replace(/\bPç\b\.?/gi, 'Praça')
+                .replace(/\bAl\b\.?/gi, 'Alameda');
+        };
+
+        const stripPrefix = (addr: string) => {
+            return addr.replace(/^(Rua|Avenida|Travessa|Alameda|Praça|Rodovia)\s+/i, '');
+        };
+
+        try {
+            // 1. Tentar endereço exato
+            let json = await doSearch(addressToUse);
+            let isApprox = false;
+
+            // 1.5 Tentar endereço normalizado
+            let normAddr = normalizeAddress(addressToUse);
+            if (!Array.isArray(json) || json.length === 0) {
+                if (normAddr !== addressToUse) {
+                    json = await doSearch(normAddr);
+                    if (Array.isArray(json) && json.length > 0) {
+                        setDeliveryAddress(normAddr); 
+                    }
+                }
+            }
+
+            // 2. Tentar remover o prefixo
+            if (!Array.isArray(json) || json.length === 0) {
+                const noPrefixAddr = stripPrefix(normAddr);
+                if (noPrefixAddr !== normAddr) {
+                    json = await doSearch(noPrefixAddr);
+                }
+            }
+
+            // 3. Busca estruturada logic... (Keeping existing logic for Fallback)
+            if (!Array.isArray(json) || json.length === 0) {
+                const parts = normAddr.split(/[,–-]/).map(p => p.trim()).filter(p => p.length > 0);
+                
+                if (parts.length >= 2) {
+                    const street = parts[0];
+                    let city = '';
+                    let state = '';
+                    
+                    let lastPart = parts[parts.length - 1];
+                    let cityIndex = parts.length - 1;
+                    
+                    if (lastPart.length === 2 && isNaN(Number(lastPart))) {
+                        state = lastPart;
+                        cityIndex--;
+                    }
+                    
+                    if (cityIndex > 0) {
+                        let potentialCity = parts[cityIndex];
+                        if (isNaN(Number(potentialCity))) {
+                            city = potentialCity;
+                        }
+                    }
+
+                    const removeAccents = (str: string) => {
+                        return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+                    };
+
+                    const stripTitles = (str: string) => {
+                        return str.replace(/\b(Capitão|Capitao|Cap|Doutor|Dr|Professor|Prof|General|Gen|Coronel|Cel|Major|Maj|Vereador|Ver|Deputado|Dep|Presidente|Pres)\b\.?/gi, '').trim();
+                    };
+
+                    if (street && (city || state)) {
+                        let structRes = await doStructuredSearch(street, city, state);
+                        
+                        if (!Array.isArray(structRes) || structRes.length === 0) {
+                            const streetClean = removeAccents(stripPrefix(street));
+                            if (streetClean !== street) {
+                                structRes = await doStructuredSearch(streetClean, city, state);
+                            }
+                        }
+
+                        if (!Array.isArray(structRes) || structRes.length === 0) {
+                            const streetNoTitles = stripTitles(stripPrefix(street));
+                            if (streetNoTitles.length > 3 && streetNoTitles !== street) {
+                                structRes = await doStructuredSearch(streetNoTitles, city, state);
+                            }
+                        }
+
+                        if (!Array.isArray(structRes) || structRes.length === 0) {
+                            const streetCore = removeAccents(stripTitles(stripPrefix(street)));
+                            if (streetCore.length > 3 && streetCore !== street) {
+                                structRes = await doStructuredSearch(streetCore, city, state);
+                            }
+                        }
+
+                        if (Array.isArray(structRes) && structRes.length > 0) {
+                            json = structRes;
+                            isApprox = true;
+                        }
+                    }
+                }
+            }
+
+            // 5. Fallback Finalissimo: CEP
+            if ((!Array.isArray(json) || json.length === 0) && cep && cep.length === 8) {
+                    const cleanCep = cep.replace(/\D/g, '');
+                    const cepUrl = `https://nominatim.openstreetmap.org/search?postalcode=${cleanCep}&countrycodes=br&format=json&limit=1`;
+                    const resCep = await fetch(cepUrl, { headers: { 'User-Agent': 'BarApp/1.0 (admin@barapp.com)' }});
+                    const jsonCep = await resCep.json();
+                    
+                    if (Array.isArray(jsonCep) && jsonCep.length > 0) {
+                        json = jsonCep;
+                        isApprox = true;
+                        // Avoid Alerts for auto-calc unless critical
+                    }
+            }
+
+            // 4. Fallback final: Remover numero
+            if (!Array.isArray(json) || json.length === 0) {
+                const cleanAddr = normAddr.replace(/[,–-]?\s*\d+\s*[,–-]?/, ','); 
+                if (cleanAddr !== normAddr) {
+                    const cleanAddrFinal = cleanAddr.replace(/^,|,$/g, '').trim();
+                    json = await doSearch(cleanAddrFinal);
+                    isApprox = true;
+                }
+            }
+
+            if (Array.isArray(json) && json.length > 0) {
+                const result = json[0];
+                const lat = parseFloat(result.lat);
+                const lon = parseFloat(result.lon);
+                
+                if (isApprox) {
+                     // Keep using toast/log for approx
+                     console.log('Endereço Aproximado (OSRM)');
+                } else {
+                     setDeliveryAddress(result.display_name);
+                }
+
+                setDeliveryCoords({ lat, lng: lon });
+                
+                const straightLine = calculateDistance(Number(companyConfig.latitude), Number(companyConfig.longitude), lat, lon);
+                const estRoadDist = parseFloat((straightLine * 1.3).toFixed(2));
+                setDeliveryDistance(estRoadDist);
+                
+                // Silent success for OSRM too if possible, or minimal
+                // if (!isApprox) { ... success ... }
+
+                fetchDrivingDistance(Number(companyConfig.latitude), Number(companyConfig.longitude), lat, lon).then(realDist => {
+                    if (realDist !== null) {
+                        setDeliveryDistance(realDist);
+                    }
+                });
+            } else {
+                // If silent fail is bad, show alert only on error
+                Platform.OS === 'web' ? window.alert('Endereço não encontrado.') : Alert.alert('Erro', 'Endereço não encontrado.');
+            }
+        } catch (e: any) {
+            console.error(e);
+            Platform.OS === 'web' ? window.alert('Erro ao buscar endereço.') : Alert.alert('Erro', 'Erro ao buscar endereço.');
+        }
+    };
+
     const handleCepSearch = async () => {
         const cleanCep = cep.replace(/\D/g, '');
         if (cleanCep.length !== 8) {
@@ -103,11 +360,14 @@ const DeliveryDetailsModal: React.FC<DeliveryDetailsModalProps> = ({
             setDeliveryAddress(formatted);
             // Opcional: focar no campo de endereço ou já disparar busca (melhor deixar usuário por número)
             
-            if (Platform.OS === 'web') {
-                 window.alert('Endereço carregado! Complete com o número e clique em Buscar.');
-            } else {
-                 Alert.alert('Sucesso', 'Endereço carregado! Complete com o número e clique em Buscar.');
-            }
+            // Trigger calculation immediately after CEP found?
+            // CEP usually gives a good address to search coordinates.
+            // Trigger calculation immediately after CEP found.
+            // Using explicit address to avoid async state issues.
+            triggerSearch(formatted);
+            
+            // Removing alert as user requested less noise
+            // if (Platform.OS === 'web') { ... } 
         } catch (error) {
             console.error(error);
             Alert.alert('Erro', 'Falha ao buscar CEP.');
@@ -735,20 +995,7 @@ const DeliveryDetailsModal: React.FC<DeliveryDetailsModalProps> = ({
                             </>
                         )}
 
-                        {isDelivery && (
-                            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 20, backgroundColor: '#E3F2FD', padding: 12, borderRadius: 8 }}>
-                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                                    <Ionicons name="receipt-outline" size={24} color="#2196F3" />
-                                    <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#333' }}>Emitir Cupom Fiscal (NFC-e)</Text>
-                                </View>
-                                <Switch
-                                    value={emitirNfce}
-                                    onValueChange={setEmitirNfce}
-                                    trackColor={{ false: "#ccc", true: "#2196F3" }}
-                                    thumbColor={"#fff"}
-                                />
-                            </View>
-                        )}
+
 
 
                     {/* Footer Actions (Moved inside ScrollView) */}
@@ -760,7 +1007,7 @@ const DeliveryDetailsModal: React.FC<DeliveryDetailsModalProps> = ({
                         {isDelivery && (
                             <TouchableOpacity 
                                 style={[styles.confirmButton, loading && { opacity: 0.7 }]} 
-                                onPress={() => onConfirm(emitirNfce)}
+                                onPress={() => onConfirm()}
                                 disabled={loading}
                             >
                                 <Text style={styles.confirmButtonText}>

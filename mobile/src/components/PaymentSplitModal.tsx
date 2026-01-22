@@ -25,7 +25,6 @@ interface PaymentSplitModalProps {
   visible: boolean;
   sale: Sale | null;
   onClose: () => void;
-  onClose: () => void;
   onPaymentSuccess: (isFullPayment?: boolean, wantNfce?: boolean) => void;
 }
 
@@ -111,12 +110,21 @@ export default function PaymentSplitModal({
 
   // Total da venda
   const totalSale = useMemo(() => {
-    const t = Number(sale?.total || 0);
-    if (t > 0) return t;
-    if (sale?.itens) {
-      return sale.itens.reduce((acc, item) => acc + Number(item.subtotal), 0);
-    }
-    return 0;
+    // Calculate verified total
+    const subtotal = sale?.itens ? sale.itens.reduce((acc, item) => acc + Number(item.subtotal), 0) : 0;
+    const fee = Number(sale?.deliveryFee || 0);
+    const discount = Number(sale?.desconto || 0);
+    
+    const calculated = subtotal + fee - discount;
+    const stored = Number(sale?.total || 0);
+
+    // If stored seems valid (close to calculated), use it. 
+    // If stored is just the fee (and we have items), or stored is 0, use calculated.
+    if (stored > 0 && Math.abs(stored - calculated) < 0.1) return stored;
+    
+    if (stored > 0 && Math.abs(stored - fee) < 0.1 && subtotal > 0) return calculated; 
+
+    return calculated > 0 ? calculated : stored;
   }, [sale]);
 
   // Cálculo robusto do Total Pago
@@ -224,6 +232,23 @@ export default function PaymentSplitModal({
         fullyPaid: isStatusPaid || remaining < 0.05
       };
     });
+
+    // Add Delivery Fee as Item if applicable
+    const fee = Number(sale.deliveryFee || 0);
+    if (fee > 0) {
+        const feeId = 'delivery-fee';
+        const feePaid = paidMap.get(feeId) || 0;
+        const feeRemaining = Math.max(0, fee - feePaid);
+        
+        itemsRaw.push({
+            itemId: feeId,
+            name: 'Taxa de Entrega',
+            total: fee,
+            paid: feePaid,
+            remaining: feeRemaining,
+            fullyPaid: feeRemaining < 0.05
+        });
+    }
 
     // CORREÇÃO CRÍTICA:
     // Se a soma do restante dos itens (sumItemRemaining) for MAIOR que o restante global da venda (totalRemainingGlobal),

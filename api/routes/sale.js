@@ -261,18 +261,24 @@ router.put('/:id/update', async (req, res) => {
     if (deliveryAddress !== undefined) data.deliveryAddress = String(deliveryAddress);
     if (deliveryDistance !== undefined) data.deliveryDistance = Number(deliveryDistance);
     
-    let newDeliveryFee = currentSale.deliveryFee;
+    // Lógica para Taxa de Entrega
+    let finalDeliveryFee = Number(currentSale.deliveryFee || 0);
+
     if (deliveryFee !== undefined) {
-        newDeliveryFee = Number(deliveryFee);
-        data.deliveryFee = newDeliveryFee;
+        finalDeliveryFee = Number(deliveryFee);
+        data.deliveryFee = finalDeliveryFee;
     }
+    
+    // CORREÇÃO: Permitir atualização de deliveryStatus
+    const { deliveryStatus } = req.body;
+    if (deliveryStatus !== undefined) data.deliveryStatus = String(deliveryStatus);
     
     if (status) data.status = status;
 
     // Recalcular Total: Subtotal + Taxa Entrega - Desconto
     const subtotal = Number(currentSale.subtotal || 0);
     const desconto = Number(currentSale.desconto || 0);
-    const taxa = Number(newDeliveryFee || 0);
+    const taxa = finalDeliveryFee;
     data.total = subtotal + taxa - desconto;
 
     const updated = await prisma.sale.update({
