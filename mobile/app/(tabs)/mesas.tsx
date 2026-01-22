@@ -379,10 +379,15 @@ export default function MesasScreen() {
     try {
       const ocupadas = (Array.isArray(mesas) ? mesas : []).filter((m) => m?.status === 'ocupada');
       
-      const calcPromises = ocupadas.map(async (m) => {
+      // Otimização: Evitar chamadas excessivas. Executar apenas se houver mesas ocupadas e não estiver carregando.
+      // Melhoria futura: Usar useRef para guardar cache e evitar re-fetch se nada mudou.
+      
+      const promises = ocupadas.map(async (m) => {
         const idStr = String(m?._id ?? (m as any)?.id ?? '');
-        if (!idStr) return;
+        if (!idStr) return null;
+        
         try {
+          // TODO: Otimizar para não buscar sale se já tivermos dados recentes (cache simples)
           const resp = await saleService.getByMesa(m._id ?? (m as any)?.id);
           const sales = Array.isArray(resp?.data) ? resp.data : [];
           const aberta = sales.find((s: any) => String(s?.status || '').toLowerCase() === 'aberta');
@@ -390,7 +395,6 @@ export default function MesasScreen() {
           const total = itens.reduce((sum: number, it: any) => sum + Number(it?.subtotal ?? (Number(it?.quantidade) * Number(it?.precoUnitario))), 0);
           const pago = (aberta?.caixaVendas || []).reduce((acc: number, cv: any) => acc + (Number(cv.valor) || 0), 0);
           
-          // Lógica de Cor (Tempo Ocioso)
           let color = '';
           if (aberta && idleConfig && idleConfig.ativo) {
              let baseTime = 0;
@@ -415,26 +419,49 @@ export default function MesasScreen() {
           }
 
           const idNum = Number((m as any)?.id || 0);
-          const k1 = idStr;
-          const k2 = idNum ? String(idNum) : undefined;
-          
-          setMesaOpenTotals((prev) => ({ ...prev, [k1]: { total, pago }, ...(k2 ? { [k2]: { total, pago } } : {}) }));
-          if (color) {
-             setMesaIdleStatus((prev) => ({ ...prev, [k1]: color, ...(k2 ? { [k2]: color } : {}) }));
-          } else {
-             // Limpar cor se não aplicar (ou manter livre se mudar status)
-             setMesaIdleStatus((prev) => {
-                 const n = {...prev};
-                 delete n[k1];
-                 if(k2) delete n[k2];
-                 return n;
-             });
-          }
-
-        } catch {}
+          return { idStr, idNum: idNum ? String(idNum) : undefined, total, pago, color };
+        } catch {
+            return null;
+        }
       });
-      // Executar calcPromises em paralelo ou sequencial? Paralelo é melhor mas cuidado com carga
-      Promise.all(calcPromises);
+
+      Promise.all(promises).then((results) => {
+          setMesaOpenTotals(prev => {
+              const next = { ...prev };
+              let changed = false;
+              results.forEach(r => {
+                  if(!r) return;
+                  if(JSON.stringify(next[r.idStr]) !== JSON.stringify({ total: r.total, pago: r.pago })) {
+                      next[r.idStr] = { total: r.total, pago: r.pago };
+                      if(r.idNum) next[r.idNum] = { total: r.total, pago: r.pago };
+                      changed = true;
+                  }
+              });
+              return changed ? next : prev;
+          });
+
+          setMesaIdleStatus(prev => {
+              const next = { ...prev };
+              let changed = false;
+              results.forEach(r => {
+                  if(!r) return;
+                  if (r.color) {
+                      if (next[r.idStr] !== r.color) {
+                          next[r.idStr] = r.color;
+                          if(r.idNum) next[r.idNum] = r.color;
+                          changed = true;
+                      }
+                  } else {
+                      if (next[r.idStr]) {
+                          delete next[r.idStr];
+                          if(r.idNum) delete next[r.idNum];
+                          changed = true;
+                      }
+                  }
+              });
+              return changed ? next : prev;
+          });
+      });
 
     } catch {}
   }, [mesas, idleConfig]);
