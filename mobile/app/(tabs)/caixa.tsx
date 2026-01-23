@@ -74,6 +74,9 @@ export default function CaixaScreen() {
   const [marks, setMarks] = useState<Record<string, boolean>>({});
   const [markFilter, setMarkFilter] = useState<'all' | 'marked' | 'unmarked'>('all');
   const [paymentFilterWeb, setPaymentFilterWeb] = useState<'all' | 'dinheiro' | 'cartao' | 'pix'>('all');
+  
+  // Novo estado para filtro de exibição (Abertas vs Registradas)
+  const [displayFilter, setDisplayFilter] = useState<'all' | 'open' | 'registered'>('all');
 
   // Helpers e cálculos para filtro por data e subtotais
   const formatSelectedDate = selectedDate.toLocaleDateString('pt-BR');
@@ -432,6 +435,28 @@ export default function CaixaScreen() {
         </TouchableOpacity>
       </View>
 
+      {/* Componente de Filtro de Exibição */}
+      <View style={styles.viewFilterContainer}>
+         <TouchableOpacity 
+            style={[styles.viewFilterOption, displayFilter === 'all' && styles.viewFilterOptionSelected]}
+            onPress={() => setDisplayFilter('all')}
+         >
+             <Text style={[styles.viewFilterText, displayFilter === 'all' && styles.viewFilterTextSelected]}>Todos</Text>
+         </TouchableOpacity>
+         <TouchableOpacity 
+            style={[styles.viewFilterOption, displayFilter === 'open' && styles.viewFilterOptionSelected]}
+            onPress={() => setDisplayFilter('open')}
+         >
+             <Text style={[styles.viewFilterText, displayFilter === 'open' && styles.viewFilterTextSelected]}>Vendas Abertas</Text>
+         </TouchableOpacity>
+         <TouchableOpacity 
+            style={[styles.viewFilterOption, displayFilter === 'registered' && styles.viewFilterOptionSelected]}
+            onPress={() => setDisplayFilter('registered')}
+         >
+             <Text style={[styles.viewFilterText, displayFilter === 'registered' && styles.viewFilterTextSelected]}>Vendas Registradas</Text>
+         </TouchableOpacity>
+      </View>
+
       <ScrollView 
         style={styles.content}
         refreshControl={
@@ -439,180 +464,188 @@ export default function CaixaScreen() {
         }
       >
         {/* Vendas abertas para finalizar */}
-        <Text style={[styles.sectionTitle]}>Vendas em aberto</Text>
-        {vendas.length === 0 ? (
-          <View style={styles.emptyContainer}>
-            <SafeIcon name="receipt-outline" size={64} color="#ccc" fallbackText="🧾" />
-            <Text style={styles.emptyText}>Nenhuma venda em aberto</Text>
-          </View>
-        ) : (
-          <View style={styles.listGrid}>
-            {vendas.map((venda) => (
-              <View key={venda._id} style={styles.vendaCard}>
-                <View style={styles.rowLine}>
-                  <Text style={styles.vendaTitle}>
-                    {getVendaTitle(venda)}
-                  </Text>
-                  <View style={styles.rowRight}>
-                    <Text style={styles.vendaTotal}>
-                      R$ {calcularTotal(venda).toFixed(2)}
+        {(displayFilter === 'all' || displayFilter === 'open') && (
+        <>
+            <Text style={[styles.sectionTitle]}>Vendas em aberto</Text>
+            {vendas.length === 0 ? (
+            <View style={styles.emptyContainer}>
+                <SafeIcon name="receipt-outline" size={64} color="#ccc" fallbackText="🧾" />
+                <Text style={styles.emptyText}>Nenhuma venda em aberto</Text>
+            </View>
+            ) : (
+            <View style={styles.listGrid}>
+                {vendas.map((venda) => (
+                <View key={venda._id} style={styles.vendaCard}>
+                    <View style={styles.rowLine}>
+                    <Text style={styles.vendaTitle}>
+                        {getVendaTitle(venda)}
                     </Text>
-                    <TouchableOpacity
-                      style={styles.rowAction}
-                      onPress={() => abrirModalFinalizacao(venda)}
-                      accessibilityLabel="Finalizar venda"
-                    >
-                      <SafeIcon name="checkmark-circle" size={20} color="#4CAF50" fallbackText="✓" />
-                    </TouchableOpacity>
-                  </View>
+                    <View style={styles.rowRight}>
+                        <Text style={styles.vendaTotal}>
+                        R$ {calcularTotal(venda).toFixed(2)}
+                        </Text>
+                        <TouchableOpacity
+                        style={styles.rowAction}
+                        onPress={() => abrirModalFinalizacao(venda)}
+                        accessibilityLabel="Finalizar venda"
+                        >
+                        <SafeIcon name="checkmark-circle" size={20} color="#4CAF50" fallbackText="✓" />
+                        </TouchableOpacity>
+                    </View>
+                    </View>
+                    <View style={styles.rowLine}>
+                    <Text style={styles.vendaInfoCompact}>
+                        Itens: {venda.itens.length} | Funcionário: {venda.funcionario?.nome || 'N/A'}
+                    </Text>
+                    </View>
                 </View>
-                <View style={styles.rowLine}>
-                  <Text style={styles.vendaInfoCompact}>
-                    Itens: {venda.itens.length} | Funcionário: {venda.funcionario?.nome || 'N/A'}
-                  </Text>
-                </View>
-              </View>
-            ))}
-          </View>
+                ))}
+            </View>
+            )}
+        </>
         )}
 
         {/* Vendas registradas no Caixa aberto */}
-        <Text style={[styles.sectionTitle, { marginTop: 24 }]}>Vendas registradas no Caixa</Text>
-        {!hasCaixaAberto ? (
-          <View style={styles.emptyContainer}>
-            <SafeIcon name="cash-outline" size={64} color="#ccc" fallbackText="＄" />
-            <Text style={styles.emptyText}>Nenhum caixa aberto</Text>
-          </View>
-        ) : (
-          <>
-            <View style={styles.filterBar}>
-              <TouchableOpacity onPress={prevDay} accessibilityLabel="Dia anterior">
-                <SafeIcon name="chevron-back" size={20} color="#333" fallbackText="‹" />
-              </TouchableOpacity>
-              <Text style={styles.dateDisplay}>{formatSelectedDate}</Text>
-              <TouchableOpacity onPress={nextDay} accessibilityLabel="Próximo dia">
-                <SafeIcon name="chevron-forward" size={20} color="#333" fallbackText="›" />
-              </TouchableOpacity>
+        {(displayFilter === 'all' || displayFilter === 'registered') && (
+        <>
+            <Text style={[styles.sectionTitle, { marginTop: 24 }]}>Vendas registradas no Caixa</Text>
+            {!hasCaixaAberto ? (
+            <View style={styles.emptyContainer}>
+                <SafeIcon name="cash-outline" size={64} color="#ccc" fallbackText="＄" />
+                <Text style={styles.emptyText}>Nenhum caixa aberto</Text>
             </View>
-
-            <View style={styles.summaryBar}>
-              {Object.entries(paymentTotals as Record<string, number>).length === 0 ? (
-                <Text style={styles.summaryItem}>Sem subtotais</Text>
-              ) : (
-                Object.entries(paymentTotals as Record<string, number>).map(([method, total]) => (
-                  <Text key={method} style={styles.summaryItem}>
-                    {formatMethodLabel(method)}: R$ {total.toFixed(2)}
-                  </Text>
-                ))
-              )}
-            </View>
-
-            {Platform.OS === 'web' && (
-              <View style={styles.filterBar}>
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
-                  <TouchableOpacity
-                    style={[styles.paymentOption, markFilter === 'all' && styles.paymentOptionSelected]}
-                    onPress={() => setMarkFilter('all')}
-                  >
-                    <Text style={[styles.paymentOptionText, markFilter === 'all' && styles.paymentOptionTextSelected]}>Todos</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.paymentOption, markFilter === 'marked' && styles.paymentOptionSelected]}
-                    onPress={() => setMarkFilter('marked')}
-                  >
-                    <Text style={[styles.paymentOptionText, markFilter === 'marked' && styles.paymentOptionTextSelected]}>Marcados</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.paymentOption, markFilter === 'unmarked' && styles.paymentOptionSelected]}
-                    onPress={() => setMarkFilter('unmarked')}
-                  >
-                    <Text style={[styles.paymentOptionText, markFilter === 'unmarked' && styles.paymentOptionTextSelected]}>Não marcados</Text>
-                  </TouchableOpacity>
-                </View>
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
-                  {['all', 'dinheiro', 'cartao', 'pix'].map((method) => (
-                    <TouchableOpacity
-                      key={method}
-                      style={[styles.paymentOption, paymentFilterWeb === method && styles.paymentOptionSelected]}
-                      onPress={() => setPaymentFilterWeb(method as any)}
-                    >
-                      <Text style={[styles.paymentOptionText, paymentFilterWeb === method && styles.paymentOptionTextSelected]}
-                      >
-                        {method === 'all' ? 'Todas' : method.charAt(0).toUpperCase() + method.slice(1)}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </View>
-            )}
-
-            {filteredCaixaVendas.length === 0 ? (
-              <View style={styles.emptyContainer}>
-                <SafeIcon name="list-outline" size={64} color="#ccc" fallbackText="≡" />
-                <Text style={styles.emptyText}>Nenhuma venda registrada no caixa</Text>
-              </View>
             ) : (
-              <View style={styles.listGrid}>
-                {filteredCaixaVendas.map((cv, idx) => {
-                  const mesaObj: any = mesaInfoBySale[saleKey(cv.venda)] || ((cv.venda.mesa && typeof cv.venda.mesa === 'object') ? cv.venda.mesa : undefined);
-                  const clean = (s: any) => (typeof s === 'string' ? s.trim() : '');
-                  const nomeRespMesa = clean(mesaObj?.nomeResponsavel);
-                  const nomeFuncMesa = clean(mesaObj?.funcionarioResponsavel?.nome);
-                  let responsavel = 
-                    nomeRespMesa ||
-                    clean(cv.venda?.responsavelNome) ||
-                    'N/A';
-                  let funcionario = 
-                    nomeFuncMesa ||
-                    clean(cv.venda?.funcionario?.nome) ||
-                    clean((cv.venda as any)?.funcionarioAberturaNome) ||
-                    clean((cv.venda as any)?.funcionarioNome) ||
-                    'N/A';
-                  if (responsavel !== 'N/A' && funcionario !== 'N/A' && responsavel === funcionario) {
-                    const respAlt = clean(cv.venda?.responsavelNome);
-                    if (respAlt && respAlt !== funcionario) {
-                      responsavel = respAlt;
-                    } else {
-                      responsavel = 'N/A';
-                    }
-                  }
-                  return (
-                    <View key={`${saleKey(cv.venda)}-${idx}`} style={styles.vendaCard}>
-                      <View style={styles.rowLine}>
-                        <Text style={styles.vendaTitle}>
-                          {mesaObj
-                            ? (mesaObj?.nome || (mesaObj?.numero != null ? `Mesa ${mesaObj?.numero}` : 'Mesa'))
-                            : getVendaTitle(cv.venda)}
-                        </Text>
-                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                          <Text style={styles.vendaTotal}>R$ {cv.valor.toFixed(2)}</Text>
-                          {Platform.OS === 'web' && (
-                            <TouchableOpacity
-                              style={styles.rowAction}
-                              onPress={() => toggleMark(saleKey(cv.venda))}
-                              accessibilityLabel={marks[saleKey(cv.venda)] ? 'Desmarcar' : 'Marcar'}
-                            >
-                              <SafeIcon
-                                name={marks[saleKey(cv.venda)] ? 'checkbox' : 'square-outline'}
-                                size={18}
-                                color={marks[saleKey(cv.venda)] ? '#2196F3' : '#999'}
-                                fallbackText={marks[saleKey(cv.venda)] ? '☑' : '☐'}
-                              />
-                            </TouchableOpacity>
-                          )}
-                        </View>
-                      </View>
-                      <View style={styles.rowLine}>
-                        <Text style={styles.vendaInfoCompact}>
-                          Resp: {responsavel} | Atend: {funcionario} | Pgto: {cv.formaPagamento} | Itens: {cv.venda?.itens?.length ?? 0}
-                        </Text>
-                      </View>
+            <>
+                <View style={styles.filterBar}>
+                <TouchableOpacity onPress={prevDay} accessibilityLabel="Dia anterior">
+                    <SafeIcon name="chevron-back" size={20} color="#333" fallbackText="‹" />
+                </TouchableOpacity>
+                <Text style={styles.dateDisplay}>{formatSelectedDate}</Text>
+                <TouchableOpacity onPress={nextDay} accessibilityLabel="Próximo dia">
+                    <SafeIcon name="chevron-forward" size={20} color="#333" fallbackText="›" />
+                </TouchableOpacity>
+                </View>
+
+                <View style={styles.summaryBar}>
+                {Object.entries(paymentTotals as Record<string, number>).length === 0 ? (
+                    <Text style={styles.summaryItem}>Sem subtotais</Text>
+                ) : (
+                    Object.entries(paymentTotals as Record<string, number>).map(([method, total]) => (
+                    <Text key={method} style={styles.summaryItem}>
+                        {formatMethodLabel(method)}: R$ {total.toFixed(2)}
+                    </Text>
+                    ))
+                )}
+                </View>
+
+                {Platform.OS === 'web' && (
+                <View style={styles.filterBar}>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
+                    <TouchableOpacity
+                        style={[styles.paymentOption, markFilter === 'all' && styles.paymentOptionSelected]}
+                        onPress={() => setMarkFilter('all')}
+                    >
+                        <Text style={[styles.paymentOptionText, markFilter === 'all' && styles.paymentOptionTextSelected]}>Todos</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={[styles.paymentOption, markFilter === 'marked' && styles.paymentOptionSelected]}
+                        onPress={() => setMarkFilter('marked')}
+                    >
+                        <Text style={[styles.paymentOptionText, markFilter === 'marked' && styles.paymentOptionTextSelected]}>Marcados</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={[styles.paymentOption, markFilter === 'unmarked' && styles.paymentOptionSelected]}
+                        onPress={() => setMarkFilter('unmarked')}
+                    >
+                        <Text style={[styles.paymentOptionText, markFilter === 'unmarked' && styles.paymentOptionTextSelected]}>Não marcados</Text>
+                    </TouchableOpacity>
                     </View>
-                  );
-                })}
-              </View>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
+                    {['all', 'dinheiro', 'cartao', 'pix'].map((method) => (
+                        <TouchableOpacity
+                        key={method}
+                        style={[styles.paymentOption, paymentFilterWeb === method && styles.paymentOptionSelected]}
+                        onPress={() => setPaymentFilterWeb(method as any)}
+                        >
+                        <Text style={[styles.paymentOptionText, paymentFilterWeb === method && styles.paymentOptionTextSelected]}
+                        >
+                            {method === 'all' ? 'Todas' : method.charAt(0).toUpperCase() + method.slice(1)}
+                        </Text>
+                        </TouchableOpacity>
+                    ))}
+                    </View>
+                </View>
+                )}
+
+                {filteredCaixaVendas.length === 0 ? (
+                <View style={styles.emptyContainer}>
+                    <SafeIcon name="list-outline" size={64} color="#ccc" fallbackText="≡" />
+                    <Text style={styles.emptyText}>Nenhuma venda registrada no caixa</Text>
+                </View>
+                ) : (
+                <View style={styles.listGrid}>
+                    {filteredCaixaVendas.map((cv, idx) => {
+                    const mesaObj: any = mesaInfoBySale[saleKey(cv.venda)] || ((cv.venda.mesa && typeof cv.venda.mesa === 'object') ? cv.venda.mesa : undefined);
+                    const clean = (s: any) => (typeof s === 'string' ? s.trim() : '');
+                    const nomeRespMesa = clean(mesaObj?.nomeResponsavel);
+                    const nomeFuncMesa = clean(mesaObj?.funcionarioResponsavel?.nome);
+                    let responsavel = 
+                        nomeRespMesa ||
+                        clean(cv.venda?.responsavelNome) ||
+                        'N/A';
+                    let funcionario = 
+                        nomeFuncMesa ||
+                        clean(cv.venda?.funcionario?.nome) ||
+                        clean((cv.venda as any)?.funcionarioAberturaNome) ||
+                        clean((cv.venda as any)?.funcionarioNome) ||
+                        'N/A';
+                    if (responsavel !== 'N/A' && funcionario !== 'N/A' && responsavel === funcionario) {
+                        const respAlt = clean(cv.venda?.responsavelNome);
+                        if (respAlt && respAlt !== funcionario) {
+                        responsavel = respAlt;
+                        } else {
+                        responsavel = 'N/A';
+                        }
+                    }
+                    return (
+                        <View key={`${saleKey(cv.venda)}-${idx}`} style={styles.vendaCard}>
+                        <View style={styles.rowLine}>
+                            <Text style={styles.vendaTitle}>
+                            {mesaObj
+                                ? (mesaObj?.nome || (mesaObj?.numero != null ? `Mesa ${mesaObj?.numero}` : 'Mesa'))
+                                : getVendaTitle(cv.venda)}
+                            </Text>
+                            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                            <Text style={styles.vendaTotal}>R$ {cv.valor.toFixed(2)}</Text>
+                            {Platform.OS === 'web' && (
+                                <TouchableOpacity
+                                style={styles.rowAction}
+                                onPress={() => toggleMark(saleKey(cv.venda))}
+                                accessibilityLabel={marks[saleKey(cv.venda)] ? 'Desmarcar' : 'Marcar'}
+                                >
+                                <SafeIcon
+                                    name={marks[saleKey(cv.venda)] ? 'checkbox' : 'square-outline'}
+                                    size={18}
+                                    color={marks[saleKey(cv.venda)] ? '#2196F3' : '#999'}
+                                    fallbackText={marks[saleKey(cv.venda)] ? '☑' : '☐'}
+                                />
+                                </TouchableOpacity>
+                            )}
+                            </View>
+                        </View>
+                        <View style={styles.rowLine}>
+                            <Text style={styles.vendaInfoCompact}>
+                            Resp: {responsavel} | Atend: {funcionario} | Pgto: {cv.formaPagamento} | Itens: {cv.venda?.itens?.length ?? 0}
+                            </Text>
+                        </View>
+                        </View>
+                    );
+                    })}
+                </View>
+                )}
+            </>
             )}
-          </>
+        </>
         )}
 
       </ScrollView>
@@ -937,6 +970,34 @@ const styles = StyleSheet.create({
     color: '#333',
     marginRight: 10,
     marginVertical: 2,
+  },
+  viewFilterContainer: {
+     flexDirection: 'row',
+     justifyContent: 'center',
+     marginVertical: 10,
+     gap: 10,
+     flexWrap: 'wrap',
+  },
+  viewFilterOption: {
+      paddingVertical: 8,
+      paddingHorizontal: 16,
+      borderRadius: 20,
+      backgroundColor: '#f0f0f0',
+      borderWidth: 1,
+      borderColor: '#e0e0e0',
+  },
+  viewFilterOptionSelected: {
+      backgroundColor: '#2196F3',
+      borderColor: '#2196F3',
+  },
+  viewFilterText: {
+      fontSize: 14,
+      color: '#333',
+      fontWeight: '500',
+  },
+  viewFilterTextSelected: {
+      color: 'white',
+      fontWeight: 'bold',
   },
 });
   const saleKey = (v: Sale) => String((v as any)?._id || (v as any)?.id || '');

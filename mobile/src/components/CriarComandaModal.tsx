@@ -12,7 +12,7 @@ import {
 } from 'react-native'
 import { Picker } from '@react-native-picker/picker'
 // import { Ionicons } from '@expo/vector-icons'
-import { employeeService } from '../services/api'
+import api, { employeeService } from '../services/api'
 
 interface Funcionario {
   _id: string;
@@ -31,9 +31,13 @@ export default function CriarComandaModal({ visible, onClose, onSubmit }: Props)
   const [observacoes, setObservacoes] = useState('');
   const [valorTotalEstimado, setValorTotalEstimado] = useState('0');
   const [funcionarios, setFuncionarios] = useState<Funcionario[]>([]);
-  // Removed clientes state
+  
+  const [clients, setClients] = useState<any[]>([]);
+  const [selectedCliente, setSelectedCliente] = useState<any | null>(null);
+  const [showClientList, setShowClientList] = useState(false);
+  
   const [selectedFuncionario, setSelectedFuncionario] = useState('');
-  // Removed selectedCliente state
+  
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -43,6 +47,24 @@ export default function CriarComandaModal({ visible, onClose, onSubmit }: Props)
         .finally(() => setLoading(false));
     }
   }, [visible]);
+
+  // Search Clients
+  useEffect(() => {
+      const delay = setTimeout(async () => {
+          if (nomeComanda.length > 2 && !selectedCliente) {
+              try {
+                  const res = await api.get('/customer/list', { params: { nome: nomeComanda } });
+                  const matches = res.data || [];
+                  setClients(matches);
+                  setShowClientList(matches.length > 0);
+              } catch (e) { console.error('Erro ao buscar clientes', e); }
+          } else {
+             setClients([]);
+             setShowClientList(false);
+          }
+      }, 500);
+      return () => clearTimeout(delay);
+  }, [nomeComanda, selectedCliente]);
 
   const loadFuncionarios = async () => {
     try {
@@ -54,7 +76,11 @@ export default function CriarComandaModal({ visible, onClose, onSubmit }: Props)
     }
   };
 
-  // Cliente removido conforme especificação: função de carregar clientes removida
+  const handleSelectClient = (client: any) => {
+    setSelectedCliente(client);
+    setNomeComanda(client.nome);
+    setShowClientList(false);
+  };
 
   const handleSubmit = () => {
     const nome = (nomeComanda || '').trim();
@@ -74,7 +100,7 @@ export default function CriarComandaModal({ visible, onClose, onSubmit }: Props)
     onSubmit({ 
       nomeComanda: nome,
       funcionario: selectedFuncionario,
-      // Removed cliente
+      cliente: selectedCliente ? (selectedCliente._id || selectedCliente.id) : null,
       valorTotalEstimado: parseFloat(valorTotalEstimado) || 0,
       observacoes: observacoes.trim()
     });
@@ -84,7 +110,8 @@ export default function CriarComandaModal({ visible, onClose, onSubmit }: Props)
     setObservacoes('');
     setValorTotalEstimado('0');
     setSelectedFuncionario('');
-    // Removed setSelectedCliente
+    setSelectedCliente(null);
+    setClients([]);
   };
 
   return (
@@ -144,17 +171,34 @@ export default function CriarComandaModal({ visible, onClose, onSubmit }: Props)
                   </View>
                 </View>
 
-                {/* Cliente removido conforme especificação: função de carregar clientes removida */}
-
                 {/* Nome da Comanda */}
-                <View style={styles.fieldContainer}>
-                  <Text style={styles.label}>Nome da Comanda: *</Text>
+                <View style={[styles.fieldContainer, { zIndex: 999 }]}> 
+                  <Text style={styles.label}>Nome da Comanda / Cliente: *</Text>
                   <TextInput
                     style={styles.input}
-                    placeholder="Ex: Mesa 5 - João"
+                    placeholder="Digite nome do cliente..."
                     value={nomeComanda}
-                    onChangeText={setNomeComanda}
+                    onChangeText={(t) => {
+                        setNomeComanda(t);
+                        if(selectedCliente && t !== selectedCliente.nome) {
+                            setSelectedCliente(null); // Clear selection if user edits name
+                        }
+                    }}
                   />
+                  {showClientList && clients.length > 0 && (
+                      <View style={styles.clientListContainer}>
+                          {clients.map(c => (
+                              <TouchableOpacity 
+                                  key={c.id || c._id} 
+                                  style={styles.clientItem}
+                                  onPress={() => handleSelectClient(c)}
+                              >
+                                  <Text style={{fontWeight:'bold'}}>{c.nome}</Text>
+                                  {c.endereco && <Text style={{fontSize:12, color:'#666'}}>{c.endereco}</Text>}
+                              </TouchableOpacity>
+                          ))}
+                      </View>
+                  )}
                 </View>
 
                 {/* Valor Total Estimado */}
@@ -241,17 +285,34 @@ export default function CriarComandaModal({ visible, onClose, onSubmit }: Props)
                 </View>
               </View>
 
-              {/* Cliente removido conforme especificação */}
-
               {/* Nome da Comanda */}
-              <View style={styles.fieldContainer}>
-                <Text style={styles.label}>Nome da Comanda: *</Text>
+              <View style={[styles.fieldContainer, { zIndex: 999 }]}>
+                <Text style={styles.label}>Nome da Comanda / Cliente: *</Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="Ex: Mesa 5 - João"
+                  placeholder="Digite nome do cliente..."
                   value={nomeComanda}
-                  onChangeText={setNomeComanda}
+                  onChangeText={(t) => {
+                      setNomeComanda(t);
+                      if(selectedCliente && t !== selectedCliente.nome) {
+                          setSelectedCliente(null);
+                      }
+                  }}
                 />
+                {showClientList && clients.length > 0 && (
+                    <View style={styles.clientListContainer}>
+                        {clients.map(c => (
+                            <TouchableOpacity 
+                                key={c.id || c._id} 
+                                style={styles.clientItem}
+                                onPress={() => handleSelectClient(c)}
+                            >
+                                <Text style={{fontWeight:'bold'}}>{c.nome}</Text>
+                                {c.endereco && <Text style={{fontSize:12, color:'#666'}}>{c.endereco}</Text>}
+                            </TouchableOpacity>
+                        ))}
+                    </View>
+                )}
               </View>
 
               {/* Valor Total Estimado */}
@@ -380,4 +441,21 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     fontSize: 16,
   },
+  clientListContainer: {
+      backgroundColor: '#fff',
+      borderColor: '#ddd',
+      borderWidth: 1,
+      borderTopWidth: 0,
+      borderRadius: 8,
+      borderTopLeftRadius: 0,
+      borderTopRightRadius: 0,
+      maxHeight: 150,
+      overflow: 'hidden',
+  },
+  clientItem: {
+      padding: 10,
+      borderBottomWidth: 1,
+      borderBottomColor: '#eee',
+      backgroundColor: '#fefefe'
+  }
 });
