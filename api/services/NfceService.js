@@ -52,6 +52,34 @@ class NfceService {
   }
 
 
+  getUfCode(company) {
+    const ibge = (company.ibge || '').replace(/\D/g, ''); // Remove spaces, dots, etc
+    if (ibge && ibge.length >= 2) {
+       return ibge.substring(0, 2);
+    }
+    const ufMap = {
+        'AC': '12', 'AL': '27', 'AP': '16', 'AM': '13', 'BA': '29', 'CE': '23',
+        'DF': '53', 'ES': '32', 'GO': '52', 'MA': '21', 'MT': '51', 'MS': '50',
+        'MG': '31', 'PA': '15', 'PB': '25', 'PR': '41', 'PE': '26', 'PI': '22',
+        'RJ': '33', 'RN': '24', 'RS': '43', 'RO': '11', 'RR': '14', 'SC': '42',
+        'SP': '35', 'SE': '28', 'TO': '17'
+    };
+    const uf = company.uf ? company.uf.toUpperCase().trim() : '';
+    return ufMap[uf] || '43'; // Default to RS if unknown
+  }
+
+  /**
+   * Remove acentos e caracteres especiais
+   */
+  sanitizeString(str) {
+      if (!str) return '';
+      return String(str)
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "") // Remove acentos
+        .replace(/[^a-zA-Z0-9\s.,-]/g, "") // Mantem apenas chars seguros
+        .trim();
+  }
+
   /**
    * Gera o XML da NFC-e baseado na Venda e Empresa
    */
@@ -61,15 +89,33 @@ class NfceService {
         const ambiente = company.ambienteFiscal === 'producao' ? '1' : '2'; // 1=Prod, 2=Hom
         const isProd = ambiente === '1';
         const accessKey = this.generateAccessKey(sale, company);
+        const cUF = this.getUfCode(company);
+        
+        const cleanIbge = (company.ibge || '').replace(/\D/g, '');
+
+        // VALIDAÇÃO CRÍTICA: IBGE Obrigatório
+        if (!cleanIbge || cleanIbge.length < 7) {
+            throw new Error(`Configuração Fiscal Incompleta: Código IBGE do Município não preenchido ou inválido (${company.ibge}). Verifique o cadastro da Empresa.`);
+        }
+
+        const cleanIe = (company.inscricaoEstadual || '').replace(/\D/g, '');
+        // VALIDAÇÃO CRÍTICA: IE Obrigatório para Emitente (exceto MEI em alguns casos, mas GERALMENTE obrigatória em NFC-e)
+        // Se cleanIe estiver vazio, pode causar Rejeição 230: IE do emitente não informada
+        if (!cleanIe) {
+             console.warn("AVISO: IE vazia. Pode causar rejeição se a empresa não for isento.");
+        }
+
         console.log("[DEBUG] Chave gerada:", accessKey);
         
         console.log("[DEBUG] Dados Empresa para XML:", {
-           ibge: company.ibge,
+           ibge: cleanIbge,
            uf: company.uf,
            municipio: company.cidade,
            logradouro: company.logradouro,
            bairro: company.bairro,
-           cep: company.cep
+           cep: company.cep,
+           ie: cleanIe,
+           cUF: cUF // Debug derived UF
         });
 
         // Root Element
@@ -100,7 +146,7 @@ class NfceService {
         const dhEmi = `${year}-${month}-${day}T${hour}:${min}:${sec}${offset}`;
         
         root.ele('ide')
-            .ele('cUF').txt(company.ibge ? company.ibge.substring(0, 2) : '43').up() // 43 = RS
+            .ele('cUF').txt(cUF).up() 
             .ele('cNF').txt(accessKey.substring(35, 43)).up()
             .ele('natOp').txt('VENDA AO CONSUMIDOR').up()
             .ele('mod').txt('65').up()
@@ -109,7 +155,7 @@ class NfceService {
             .ele('dhEmi').txt(dhEmi).up()
         .ele('tpNF').txt('1').up()
         .ele('idDest').txt('1').up()
-        .ele('cMunFG').txt(company.ibge || '4314902').up()
+        .ele('cMunFG').txt(cleanIbge).up() // MUST USE SANITIZED IBGE
         .ele('tpImp').txt('4').up()
         .ele('tpEmis').txt('1').up()
         .ele('cDV').txt(accessKey.substring(43, 44)).up()
@@ -117,7 +163,7 @@ class NfceService {
         .ele('finNFe').txt('1').up()
         .ele('indFinal').txt('1').up()
         .ele('indPres').txt('1').up()
-        // .ele('indIntermed').txt('0').up() // Removed to test if this is causing schema error
+        // .ele('indIntermed').txt('0').up() // REMOVIDO: Obrigatório apenas se indPres != 1 (presencial). Se for 1, não deve existir ou deve ser omitido conforme UF. Na dúvida, melhor omitir pois alguns validadores rejeitam se existir com indPres=1
         .ele('procEmi').txt('0').up()
         .ele('verProc').txt('1.0.0').up()
     .up();
@@ -125,21 +171,24 @@ class NfceService {
     // 2. Emitente
     const emit = root.ele('emit');
     emit.ele('CNPJ').txt(company.cnpj.replace(/\D/g, '')).up();
-    emit.ele('xNome').txt(company.razaoSocial.substring(0, 60)).up();
+    emit.ele('xNome').txt(this.sanitizeString(company.razaoSocial).substring(0, 60)).up();
     
     const enderEmit = emit.ele('enderEmit');
-    enderEmit.ele('xLgr').txt(company.logradouro || 'Rua Teste').up();
-    enderEmit.ele('nro').txt(company.numero || 'SN').up();
-    enderEmit.ele('xBairro').txt(company.bairro || 'Centro').up();
-    enderEmit.ele('cMun').txt(company.ibge || '4314902').up();
-    enderEmit.ele('xMun').txt(company.cidade || 'Porto Alegre').up();
-    enderEmit.ele('UF').txt(company.uf || 'RS').up();
+    enderEmit.ele('xLgr').txt(this.sanitizeString(company.logradouro) || 'Rua Teste').up();
+    enderEmit.ele('nro').txt(this.sanitizeString(company.numero) || 'SN').up();
+    enderEmit.ele('xBairro').txt(this.sanitizeString(company.bairro) || 'Centro').up();
+    enderEmit.ele('cMun').txt(cleanIbge).up(); // MUST USE SANITIZED IBGE
+    enderEmit.ele('xMun').txt(this.sanitizeString(company.cidade) || 'Porto Alegre').up();
+    enderEmit.ele('UF').txt(this.sanitizeString(company.uf) || 'RS').up();
     enderEmit.ele('CEP').txt((company.cep || '90000000').replace(/\D/g, '')).up();
 
     enderEmit.ele('cPais').txt('1058').up();
     enderEmit.ele('xPais').txt('BRASIL').up();
     
-    emit.ele('IE').txt((company.inscricaoEstadual || '').replace(/\D/g, '')).up();
+    // IE Obrigatória
+    if (cleanIe) {
+        emit.ele('IE').txt(cleanIe).up();
+    }
     emit.ele('CRT').txt('1').up(); // 1 = Simples Nacional (Mandatory)
 
 
@@ -272,7 +321,7 @@ class NfceService {
     }
 
   generateAccessKey(sale, company) {
-    const cUF = company.ibge ? company.ibge.substring(0, 2) : '43'; // 43 = RS
+    const cUF = this.getUfCode(company);
     const now = new Date();
     const AAMM = `${String(now.getFullYear()).substring(2)}${String(now.getMonth() + 1).padStart(2, '0')}`;
     const CNPJ = company.cnpj.replace(/\D/g, '').padStart(14, '0');
@@ -519,11 +568,14 @@ class NfceService {
                   finalMotivo = 'Lote processado mas sem protocolo (Erro SEFAZ?)';
               }
           } else {
-              // Outros erros de lote (Rejeição de Schema antiga cairia aqui se fosse o caso)
-              // Mas como agora é 104, estamos salvos.
-              finalMotivo = (xmlResp.match(/<xMotivo>(.*?)<\/xMotivo>/) || [])[1] || 'Erro Lote';
+              // Tratamento Melhorado de Erros (xMotivo ou Fault)
+              const xMotivoGlobal = (xmlResp.match(/<xMotivo>(.*?)<\/xMotivo>/) || [])[1];
+              const faultString = (xmlResp.match(/<faultstring>(.*?)<\/faultstring>/) || [])[1];
+              const sMessage = (xmlResp.match(/<s:Reason>[\s\S]*?<s:Text.*?>(.*?)<\/s:Text>/) || [])[1];
+              
+              finalMotivo = xMotivoGlobal || faultString || sMessage || 'Erro Lote/SOAP Desconhecido';
               const cStat = (xmlResp.match(/<cStat>(\d+)<\/cStat>/) || [])[1];
-              if (cStat === '100') finalStatus = 'AUTORIZADO'; // Caso raro de sync direto
+              if (cStat === '100') finalStatus = 'AUTORIZADO';
           }
 
           

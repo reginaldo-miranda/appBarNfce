@@ -1,6 +1,5 @@
 {
-  "status": "AUTORIZADO",
-  "protocolo": "135260000178767",
-  "motivo": "Autorizado o uso da NF-e",
-  "chave": "35260104386179000118650030000005951040692923"
+  "status": "REJEITADO",
+  "motivo": "Rejeição: Duplicidade de NF-e com diferença na Chave de Acesso [chNFe:35260104386179000118650030000006011502978198][nRec:351000050660431]",
+  "chave": "35260104386179000118650030000006011221472711"
 }
