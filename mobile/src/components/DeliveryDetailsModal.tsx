@@ -312,7 +312,27 @@ const DeliveryDetailsModal: React.FC<DeliveryDetailsModalProps> = ({
                      // Keep using toast/log for approx
                      console.log('Endereço Aproximado (OSRM)');
                 } else {
-                     setDeliveryAddress(result.display_name);
+                     // Sanitize display_name for Nominatim to look like Google
+                     // Remove: Região X, Brasil, Código Postal
+                     const raw = result.display_name || '';
+                     const parts = raw.split(',').map((p: string) => p.trim());
+                     const filtered = parts.filter((p: string) => {
+                         const ignore = [
+                             'Região', 'Brasil', 'South Region', 'Sudeste', 
+                             'Imediata', 'Geográfica', 'Metropolitana'
+                         ];
+                         // Filter out zip codes if they are at the end (we have a separate field or just keep it?)
+                         // User wants: Rua, Bairro, Cidade, Estado.
+                         // Usually Nominatim gives: Street, Hood, City, State, Region, Country
+                         return !ignore.some(i => p.includes(i));
+                     });
+                     
+                     // Reconstruct clean address
+                     let clean = filtered.join(', ');
+                     // Remove duplicate commas or weird endings
+                     clean = clean.replace(/, \d{5}-\d{3}/, ''); // Remove CEP from string if desired
+                     
+                     setDeliveryAddress(clean);
                 }
 
                 setDeliveryCoords({ lat, lng: lon });

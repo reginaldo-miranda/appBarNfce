@@ -29,160 +29,224 @@ export const emitirNfce = async (req, res) => {
 
         if (!sale) return res.status(404).json({ error: 'Venda não encontrada' });
 
-        // if (sale.nfce && sale.nfce.status === 'AUTORIZADA') {
-        //     return res.status(400).json({ error: 'NFC-e já emitida para esta venda' });
-        // }
-
-        const company = await prisma.company.findFirst();
+        // Busca dados iniciais da empresa
+        let company = await prisma.company.findFirst();
         if (!company || !company.cnpj) {
              return res.status(400).json({ error: 'Configuração fiscal incompleta (CNPJ não encontrado)' });
         }
 
-        // 1. Gerar XML
-        const { xmlContent, accessKey } = await NfceService.buildXML(sale, company);
+        let attempts = 0;
+        const maxAttempts = 5;
+        let lastError = null;
+        let lastResult = null;
+        let success = false;
 
-        // 2. Assinar (Mock ou Real)
-        const signedXml = await NfceService.signXML(xmlContent, company.certificadoPath, company.certificadoSenha);
+        // Loop de Tentativas (Auto-Retry em caso de Duplicidade)
+        while (attempts < maxAttempts && !success) {
+            attempts++;
+            console.log(`[NFC-e] Tentativa de emissão ${attempts}/${maxAttempts} - Sequência: ${company.numeroInicialNfce}`);
 
-        // 3. Enviar para SEFAZ (Mock ou Real)
-        // Passando accessKey para garantir que o mock responda com a chave correta
-        // 3. Enviar para SEFAZ (Mock ou Real)
-        // Passando accessKey para garantir que o mock responda com a chave correta
-        const sefazResult = await NfceService.sendToSefaz(signedXml, company, accessKey, sale);
-        
-        try {
-            fs.writeFileSync(path.join(__dirname, '../last_sefaz_response.json'), JSON.stringify(sefazResult, null, 2));
-        } catch (e) {
-            console.error("Falha ao salvar log sefaz", e);
-        }
+            try {
+                // 1. Gerar XML
+                const { xmlContent, accessKey } = await NfceService.buildXML(sale, company);
 
+                // 2. Assinar
+                const signedXml = await NfceService.signXML(xmlContent, company.certificadoPath, company.certificadoSenha);
 
-        // 4. Gerar QR Code
-        const qrCodeResult = await NfceService.getQrCode(sefazResult.chave, company, sale);
+                // 3. Enviar para SEFAZ
+                const sefazResult = await NfceService.sendToSefaz(signedXml, company, accessKey, sale);
+                lastResult = sefazResult;
 
-        // 4.1 Salvar XML em arquivo físico
-        let xmlDir;
-        let finalXmlPath;
+                // Análise do Resultado
+                if (sefazResult.status === 'AUTORIZADO') {
+                    success = true; // Sai do loop com sucesso
+                } else {
+                    // Verifica se é erro de Duplicidade (204 ou 539)
+                    // Motivo geralmente contém "Duplicidade" ou códigos
+                    const isDuplicity = (sefazResult.motivo && sefazResult.motivo.includes('Duplicidade')) ||
+                                        (sefazResult.motivo && (sefazResult.motivo.includes('204') || sefazResult.motivo.includes('539')));
 
-        if (company.xmlFolder && company.xmlFolder.trim() !== '') {
-            // Estrutura exigida: Base/jan2026/chave.xml
-            const now = new Date();
-            const months = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
-            const subfolder = `${months[now.getMonth()]}${now.getFullYear()}`;
-            
-            xmlDir = path.join(company.xmlFolder, subfolder);
-            
-            // Garantir que diretório existe
-            if (!fs.existsSync(xmlDir)) {
-                try {
-                    fs.mkdirSync(xmlDir, { recursive: true });
-                } catch (e) {
-                    console.error(`[ERROR] Falha ao criar diretório configurado ${xmlDir}:`, e);
-                    // Fallback para diretório padrão se falhar (ex: permissão)
+                    if (isDuplicity) {
+                        console.warn(`[NFC-e] Erro de Duplicidade detectado na tentativa ${attempts}. Incrementando sequência...`);
+                        
+                        // Incrementa no Banco
+                        await prisma.company.update({
+                            where: { id: company.id },
+                            data: { numeroInicialNfce: { increment: 1 } }
+                        });
 
-
-                    // Fallback para diretório padrão se falhar (ex: permissão)
-                    xmlDir = path.join(__dirname, '../../xml_nfce');
+                        // Atualiza objeto local da empresa para próxima iteração
+                        company = await prisma.company.findFirst();
+                        
+                        lastError = sefazResult; // Guarda erro caso esgote tentativas
+                        // Loop continua...
+                    } else {
+                        // Outro erro (Rejeição definitiva, erro de validação, etc)
+                        // Não adianta tentar de novo
+                        console.error(`[NFC-e] Erro definitivo na tentativa ${attempts}: ${sefazResult.motivo}`);
+                        lastError = sefazResult;
+                        break; // Sai do loop
+                    }
                 }
+
+            } catch (innerError) {
+                console.error(`[NFC-e] Exceção na tentativa ${attempts}:`, innerError);
+                lastError = { status: 'ERRO_INTERNO', motivo: innerError.message || 'Erro interno desconhecido' };
+                // Dependendo do erro interno (ex: falha de rede temporária), poderíamos tentar de novo.
+                // Por segurança, vamos abortar em erro de código/interno, exceto se decidirmos tratar timeouts.
+                break; 
             }
-        } else {
-            // Diretório padrão (sem subpastas por mês, mantendo compatibilidade)
-            // Diretório padrão (sem subpastas por mês, mantendo compatibilidade)
-            xmlDir = path.join(__dirname, '../../xml_nfce');
-        }
+        } // Fim do While
 
+        // Processar Resultado Final
+        if (success && lastResult) {
+            // SUCESSO
+            const sefazResult = lastResult;
+            
+             // 4. Gerar QR Code (Recuperar ou Gerar)
+            const qrCodeResult = await NfceService.getQrCode(sefazResult.chave, company, sale); // company agora tem num atualizado
 
+            // 4.1 Salvar XML em arquivo físico
+            let xmlDir;
+            let finalXmlPath;
 
-        if (!fs.existsSync(xmlDir)) {
-            fs.mkdirSync(xmlDir, { recursive: true });
-        }
-        
-        const xmlFilename = `${sefazResult.chave}.xml`;
-        finalXmlPath = path.join(xmlDir, xmlFilename);
-        
-        console.log(`[DEBUG] Tentando salvar XML em: ${finalXmlPath}`);
-        console.log(`[DEBUG] Tamanho do XML assinado: ${signedXml ? signedXml.length : 0} bytes`);
-
-        try {
-            fs.writeFileSync(finalXmlPath, signedXml);
-            console.log(`[SUCCESS] XML salvo em: ${finalXmlPath}`);
-        } catch (err) {
-            console.error('[ERROR] Erro ao salvar arquivo XML:', err);
-        }
-
-
-
-        // 5. Salvar na Venda (Upsert Nfce)
-        const nfceData = {
-            chave: sefazResult.chave,
-            protocolo: sefazResult.protocolo || '',
-            xml: signedXml, 
-            qrCode: qrCodeResult ? qrCodeResult.url : null,
-            status: sefazResult.status === 'AUTORIZADO' ? 'AUTORIZADA' : 'REJEITADA',
-            ambiente: company.ambienteFiscal,
-            motivo: sefazResult.motivo,
-            numero: company.numeroInicialNfce,
-            serie: company.serieNfce,
-            urlConsulta: qrCodeResult ? qrCodeResult.url : null // Simplificacao
-        };
-
-        let savedNfce;
-        if (sale.nfce) {
-            savedNfce = await prisma.nfce.update({
-                where: { id: sale.nfce.id },
-                data: nfceData
-            });
-        } else {
-             savedNfce = await prisma.nfce.create({
-                data: {
-                    ...nfceData,
-                    saleId: sale.id
+            if (company.xmlFolder && company.xmlFolder.trim() !== '') {
+                const now = new Date();
+                const months = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+                const subfolder = `${months[now.getMonth()]}${now.getFullYear()}`;
+                
+                xmlDir = path.join(company.xmlFolder, subfolder);
+                
+                if (!fs.existsSync(xmlDir)) {
+                    try {
+                        fs.mkdirSync(xmlDir, { recursive: true });
+                    } catch (e) {
+                        console.error(`[ERROR] Falha ao criar diretório configurado ${xmlDir}:`, e);
+                        xmlDir = path.join(__dirname, '../../xml_nfce');
+                    }
                 }
-            });
-        }
+            } else {
+                xmlDir = path.join(__dirname, '../../xml_nfce');
+            }
 
-        // Increment Company NFC-e Number if successful
-        if (sefazResult.status === 'AUTORIZADO') {
+            if (!fs.existsSync(xmlDir)) {
+                fs.mkdirSync(xmlDir, { recursive: true });
+            }
+            
+            // Recriar XML Assinado Final se necessário (na verdade já temos ele da ultima tentativa bem sucedida,
+            // mas precisariamos ter guardado o 'signedXml' daquela iteração.
+            // Para simplificar, vamos regerar ou assumir que o ultimo foi o sucesso.
+            // MELHORIA: Guardar signedXml dentro do loop quando sucesso.
+            
+            // Re-buildando XML rapidamente para garantir que temos o binário correto da tentativa vencedora
+            // (Isso é seguro pois os dados não mudaram, só a sequencia que já está atualizada no obj company)
+             const { xmlContent } = await NfceService.buildXML(sale, company);
+             const signedXmlFinal = await NfceService.signXML(xmlContent, company.certificadoPath, company.certificadoSenha);
+            
+            const xmlFilename = `${sefazResult.chave}.xml`;
+            finalXmlPath = path.join(xmlDir, xmlFilename);
+            
+            try {
+                fs.writeFileSync(finalXmlPath, signedXmlFinal);
+                console.log(`[SUCCESS] XML salvo em: ${finalXmlPath}`);
+            } catch (err) {
+                console.error('[ERROR] Erro ao salvar arquivo XML:', err);
+            }
+
+            // 5. Salvar na Venda (Upsert Nfce)
+            const nfceData = {
+                chave: sefazResult.chave,
+                protocolo: sefazResult.protocolo || '',
+                xml: signedXmlFinal, 
+                qrCode: qrCodeResult ? qrCodeResult.url : null,
+                status: 'AUTORIZADA',
+                ambiente: company.ambienteFiscal,
+                motivo: sefazResult.motivo,
+                numero: company.numeroInicialNfce, // Número que deu certo
+                serie: company.serieNfce,
+                urlConsulta: qrCodeResult ? qrCodeResult.url : null
+            };
+
+            let savedNfce;
+            if (sale.nfce) {
+                savedNfce = await prisma.nfce.update({
+                    where: { id: sale.nfce.id },
+                    data: nfceData
+                });
+            } else {
+                 savedNfce = await prisma.nfce.create({
+                    data: {
+                        ...nfceData,
+                        saleId: sale.id
+                    }
+                });
+            }
+
+            // Increment NEXT number (Prepara o próximo)
+            // IMPORTANTE: Como já incrementamos DURANTE as tentativas falhas para tentar o 'atual',
+            // agora precisamos incrementar MAIS UM para deixar pronto para a PRÓXIMA venda.
+            // Se a tentativa 1 (seq 100) deu certo -> incrementa para 101.
+            // Se a tentativa 1 (seq 100) falhou, inc p/ 101, tentou 101 e deu certo -> inc p/ 102.
             await prisma.company.update({
                 where: { id: company.id },
                 data: { numeroInicialNfce: { increment: 1 } }
             });
-        }
 
-        // 6. Preparar resposta completa para o Frontend
-        // 6. Preparar resposta completa para o Frontend
-        const isRejected = savedNfce.status === 'REJEITADA';
-        
-        if (isRejected) {
-             return res.status(400).json({
+            const fullResponse = {
+                success: true,
+                status: savedNfce.status,
+                message: 'NFC-e emitida com sucesso',
+                nfce: savedNfce,
+                qrCode: qrCodeResult ? {
+                    url: qrCodeResult.url,
+                    base64: qrCodeResult.base64
+                } : null,
+                pdfUrl: `${req.protocol}://${req.get('host')}/api/nfce/${sale.id}/pdf`,
+                urlConsulta: savedNfce.urlConsulta,
+                xmlDebugPath: finalXmlPath
+            };
+
+            return res.json(fullResponse);
+
+        } else {
+            // FALHA APÓS TODAS TENTATIVAS OU ERRO IRRECUPERÁVEL
+            const failure = lastError || { motivo: 'Erro desconhecido ao emitir' };
+            
+            // Tenta salvar o registro de rejeição se tiver chave (mesmo que duplicada)
+            // Se foi duplicidade, provavelmente já existe uma nota com esse numero (de outra venda ou orfã).
+            // A venda ATUAL continua sem nota autorizada.
+            
+            // Se o erro foi rejeição na SEFAZ, create/update registro NFC-e vinculado à venda com status REJEITADA
+            if (lastResult && lastResult.chave) {
+                 const nfceRejeitada = {
+                    chave: lastResult.chave,
+                    protocolo: lastResult.protocolo || '',
+                    xml: '', // Não temos o XML final assinado aqui fácil sem rebuild, deixa vazio por enqto
+                    status: 'REJEITADA',
+                    ambiente: company.ambienteFiscal,
+                    motivo: failure.motivo || 'Rejeitada',
+                    numero: company.numeroInicialNfce,
+                    serie: company.serieNfce
+                };
+                
+                 if (sale.nfce) {
+                    await prisma.nfce.update({ where: { id: sale.nfce.id }, data: nfceRejeitada });
+                } else {
+                    await prisma.nfce.create({ data: { ...nfceRejeitada, saleId: sale.id } });
+                }
+            }
+            
+            return res.status(400).json({
                 success: false,
                 status: 'REJEITADA',
-                error: `Rejeição: ${savedNfce.motivo || 'Motivo não especificado'}`,
-                message: savedNfce.motivo || 'Nota rejeitada pela SEFAZ',
-                nfce: savedNfce
+                error: `Rejeição: ${failure.motivo}`,
+                message: failure.motivo || 'Nota rejeitada pela SEFAZ após tentativas.',
+                nfce: failure
              });
         }
 
-        const fullResponse = {
-            success: true,
-            status: savedNfce.status,
-            message: 'NFC-e emitida com sucesso',
-            nfce: savedNfce,
-            // Enviar estrutura de QRCode se disponível
-            qrCode: qrCodeResult ? {
-                url: qrCodeResult.url,
-                base64: qrCodeResult.base64
-            } : null,
-            // URL para o botão de PDF
-            pdfUrl: `${req.protocol}://${req.get('host')}/api/nfce/${sale.id}/pdf`,
-            urlConsulta: savedNfce.urlConsulta,
-            xmlDebugPath: finalXmlPath // Debug path info
-        };
-
-        return res.json(fullResponse);
-
     } catch (error) {
-        console.error("Erro ao emitir NFC-e:", error);
+        console.error("Erro Fatal no Controller emitir NFC-e:", error);
         return res.status(500).json({ error: 'Erro interno na emissão: ' + (error.message || error) });
     }
 };

@@ -13,6 +13,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import api, { saleService, apiService, getWsUrl, API_URL } from '../src/services/api';
+import NfceService from '../src/services/NfceService'; // Importação do Serviço NFC-e
 import ScreenIdentifier from '../src/components/ScreenIdentifier';
 import { Linking, Modal } from 'react-native';
 import PaymentSplitModal from '../src/components/PaymentSplitModal';
@@ -321,17 +322,57 @@ export default function DeliveryDashboardScreen() {
                         await saleService.update(selectedSale.id, updates);
                         
                         setSplitModalVisible(false);
-                        Alert.alert('Sucesso', 'Entrega e Pagamento confirmados!');
-                        loadDeliveries();
-                        
-                        // Nota Fiscal logic handled by PaymentSplitModal internally or separate flow if requested?
-                        // User requested: "E se ja foi emitido cupom fiscal nao emitir novamente".
-                        // PaymentSplitModal has 'emitirNfce' state (wantNfce param).
-                        // If wantNfce is true, we usually call emission here OR PaymentSplitModal does it.
-                        // Currently PaymentSplitModal does NOT call emission, it returns 'wantNfce'.
-                        // We should probably respect that if we were implementing emission, 
-                        // but user explicitly asked NOT to duplicate implicit emission logic if it existed.
-                        // Since we are adding NONE, we are safe.
+
+                        // Lógica de Emissão de NFC-e
+                        if (wantNfce) {
+                            // Em vez de Alert bloqueante, usamos loading visual
+                            setLoading(true); 
+                            
+                            try {
+                                const nfceResult = await NfceService.emitir(selectedSale.id);
+                                console.log('[NFC-e] Emitida na Entrega:', nfceResult);
+
+                                if (nfceResult.success) {
+                                     // Abrir PDF
+                                    if (Platform.OS === 'web') {
+                                        window.alert('✅ Entrega Confirmada e NFC-e Emitida com SUCESSO!');
+                                        window.open(nfceResult.pdfUrl, '_blank');
+                                    } else {
+                                        Alert.alert(
+                                            '✅ Sucesso!',
+                                            'Entrega Confirmada e NFC-e Emitida!',
+                                            [
+                                                { text: 'Abrir PDF', onPress: () => Linking.openURL(nfceResult.pdfUrl) },
+                                                { text: 'OK' }
+                                            ]
+                                        );
+                                    }
+                                } else {
+                                    // Erro (Rejeitada)
+                                    const errMsg = `Entrega SALVA, mas houve erro na NFC-e: ${nfceResult.message || nfceResult.error}`;
+                                    if(Platform.OS === 'web') window.alert('⚠️ ' + errMsg);
+                                    else Alert.alert('⚠️ Atenção', errMsg);
+                                }
+                            } catch (error: any) {
+                                console.error('[NFC-e] Erro:', error);
+                                const errMsg = `Entrega SALVA, mas falha ao emitir NFC-e: ${error.message || error}`;
+                                if(Platform.OS === 'web') window.alert('⚠️ ' + errMsg);
+                                else Alert.alert('⚠️ Erro NFC-e', errMsg);
+                            } finally {
+                                setLoading(false);
+                            }
+                        } else {
+                            // Sem NFC-e
+                            if(Platform.OS === 'web') {
+                                window.alert('Sucesso: Entrega e Pagamento confirmados!');
+                            } else {
+                                Alert.alert('Sucesso', 'Entrega e Pagamento confirmados!');
+                            }
+                            setLoading(false); // Garante que loading some se estava true
+                        }
+
+
+                        loadDeliveries(); // Recarrega lista
                         
                     } catch (e) {
                         console.error(e);

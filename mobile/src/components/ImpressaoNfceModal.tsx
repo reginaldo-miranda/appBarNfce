@@ -63,7 +63,17 @@ export default function ImpressaoNfceModal({ visible, onClose, status, message, 
                   </View>
                 )}
 
-                <Text style={styles.message}>{message || 'NFC-e emitida com sucesso.'}</Text>
+                {(nfceData?.nfce?.numero || nfceData?.nfce?.serie) ? (
+                    <View style={{ marginTop: 16, padding: 12, backgroundColor: '#E8F5E9', borderRadius: 8, width: '100%', alignItems: 'center' }}>
+                        <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#2E7D32', textAlign: 'center' }}>✅ NFC-e emitida com sucesso</Text>
+                        <Text style={{ fontSize: 13, color: '#1B5E20', marginTop: 4, textAlign: 'center' }}>Documento fiscal autorizado pela SEFAZ.</Text>
+                        <Text style={{ fontSize: 14, fontWeight: 'bold', color: '#333', marginTop: 8 }}>
+                            Nº: {String(nfceData.nfce.numero).padStart(9, '0')} – Série: {nfceData.nfce.serie}
+                        </Text>
+                    </View>
+                ) : (
+                    <Text style={styles.message}>{message || 'NFC-e emitida com sucesso.'}</Text>
+                )}
                 
                 {/* Fallback para botão se não tiver imagem, ou ambos */}
                 {(nfceData?.urlConsulta || nfceData?.nfce?.qrCode || nfceData?.qrCode?.url) && (

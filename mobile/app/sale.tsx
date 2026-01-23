@@ -63,6 +63,7 @@ export default function SaleScreen() {
   const latestReqRef = useRef<Map<string, number>>(new Map());
   
   const handleEmitNfce = async (saleIdToEmit: string) => {
+    console.log('[DEBUG] handleEmitNfce CALLED. ID:', saleIdToEmit);
     setNfceModalVisible(true);
     setNfceStatus('loading');
     setNfceMessage('Transmitindo para SEFAZ...');
@@ -75,16 +76,15 @@ export default function SaleScreen() {
       const isAuth = statusRaw === 'AUTORIZADO' || statusRaw === 'AUTORIZADA';
 
       if (res.success || isAuth) {
+        console.log('[DEBUG] NFC-e SUCCESS detected. Preparing Alert.');
         setNfceStatus('success');
         setNfceMessage('NFC-e emitida com sucesso!');
         setNfceData(res);
         // Explicit success alert for delivery/general flow as requested
-        if (Platform.OS === 'web') {
-           window.alert('Cupom Fiscal emitido com sucesso!');
-        } else {
-           Alert.alert('Sucesso', 'Cupom Fiscal emitido com sucesso!');
-        }
+        // Moved into ImpressaoNfceModal for better visibility
+        console.log('[DEBUG] NFC-e Success. Modal updated.');
       } else {
+        console.log('[DEBUG] NFC-e FAILED.', res);
         setNfceStatus('error');
         // Prioritize 'motivo' from DB/Sefaz, then 'message', then 'error'
         const reason = res.motivo || res.message || res.error || 'Erro: Nota Rejeitada pela SEFAZ.';
@@ -143,6 +143,23 @@ export default function SaleScreen() {
 
   // API Key for Maps
   const [googleMapsKey, setGoogleMapsKey] = useState(Constants.expoConfig?.android?.config?.googleMaps?.apiKey || Constants.expoConfig?.ios?.config?.googleMapsApiKey || '');
+
+  useEffect(() => {
+     // Load Google Maps Key from Storage (User Config) override
+     (async () => {
+         try {
+             // 1. Try Storage
+             const storedKey = await getSecureItem(STORAGE_KEYS.GOOGLE_MAPS_KEY);
+             if (storedKey) {
+                 console.log('[DEBUG] Loaded Google Key from Storage:', storedKey);
+                 setGoogleMapsKey(storedKey);
+             } else {
+                 console.log('[DEBUG] No custom Google Key in Storage. Using default.');
+             }
+         } catch(e) { console.error('Error loading google key', e); }
+     })();
+     console.log('[DEBUG] Component Mount. Google Key:', googleMapsKey ? 'PRESENT' : 'MISSING', googleMapsKey);
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -1089,7 +1106,7 @@ export default function SaleScreen() {
   // Estado específico para loading do botão de finalizar
   const [finalizing, setFinalizing] = useState(false);
 
-  const finalizeSale = async (options?: { silent?: boolean }) => {
+  const finalizeSale = async (options?: { silent?: boolean; skipNavigation?: boolean }) => {
     console.log('🔄 FINALIZAR VENDA - Iniciando processo');
     
     if (!sale || cart.length === 0) {
@@ -1154,6 +1171,12 @@ export default function SaleScreen() {
                 deliveryFee,
                 deliveryStatus: 'pending'
             });
+            
+            if (options?.skipNavigation) {
+                console.log('🔄 Delivery salvo. Mantendo na tela para NFC-e (skipNavigation)');
+                return;
+            }
+
             Alert.alert('Sucesso', 'Venda configurada para entrega!');
             router.back();
             return;
@@ -1440,7 +1463,7 @@ export default function SaleScreen() {
                     setLoading(true);
                     
                     // Robust handling of ID
-                    let currentSaleId = sale?._id || (sale?.id ? String(sale?.id) : undefined);
+                    let currentSaleId = (sale as any)?._id || (sale as any)?.id ? String((sale as any)?._id || (sale as any)?.id) : undefined;
 
                     // Auto-recovery: If no sale ID but items exist, create it
                     if (!currentSaleId && cart.length > 0) {
@@ -1449,7 +1472,7 @@ export default function SaleScreen() {
                             if (createRes.data && (createRes.data._id || createRes.data.id)) {
                                 currentSaleId = createRes.data._id || String(createRes.data.id);
                                 for (const item of cart) {
-                                    const pId = item.productId || (item.produto && (item.produto._id || item.produto.id));
+                                    const pId = item.productId || ((item.produto as any)?._id || (item.produto as any)?.id);
                                     if (pId) {
                                         await saleService.addItem(currentSaleId, {
                                             produtoId: parseInt(String(pId), 10),
@@ -1954,6 +1977,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingBottom: 10,
     color: '#666',
+  },
+  debugText: {
+    fontSize: 10,
+    color: 'red',
+    textAlign: 'center',
+    backgroundColor: '#ffebee',
+    padding: 2
   },
   cartList: {
     padding: 16,
