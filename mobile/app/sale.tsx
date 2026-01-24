@@ -1566,6 +1566,33 @@ export default function SaleScreen() {
                 <Text style={[styles.modalSubtitle, { color: '#F44336', marginTop: -20 }]}>Falta: R$ {totalRemaining.toFixed(2)}</Text>
               </>
             )}
+
+            {/* Seleção de Cliente no Modal de Finalização */}
+             <Text style={styles.modalLabel}>Cliente:</Text>
+             <TouchableOpacity
+              style={[
+                styles.paymentOption,
+                selectedCliente && styles.paymentOptionSelected,
+                { marginBottom: 16, justifyContent: 'space-between' }
+              ]}
+              onPress={() => setShowClientModal(true)}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Ionicons 
+                    name={selectedCliente ? "person" : "person-outline"} 
+                    size={20} 
+                    color={selectedCliente ? '#2196F3' : '#666'} 
+                />
+                <Text style={[
+                    styles.paymentOptionText,
+                    selectedCliente && styles.paymentOptionTextSelected
+                ]}>
+                    {selectedCliente ? selectedCliente.nome : 'Selecionar Cliente'}
+                </Text>
+              </View>
+              <Ionicons name="search" size={18} color={selectedCliente ? '#2196F3' : '#999'} />
+            </TouchableOpacity>
+
             
             <TouchableOpacity 
               style={[styles.modalButton, { backgroundColor: '#FF9800', marginBottom: 20, width: '100%', flexDirection: 'row', justifyContent: 'center', gap: 8 }]}

@@ -18,7 +18,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router } from 'expo-router';
 
 import { SafeIcon } from '../../components/SafeIcon';
-import { mesaService, saleService, employeeService, getWsUrl, authService, idleTimeConfigService } from '../../src/services/api';
+import api, { mesaService, saleService, employeeService, getWsUrl, authService, idleTimeConfigService, customerService } from '../../src/services/api';
 import { STORAGE_KEYS } from '../../src/services/storage';
   import ProductSelector from '../../src/components/ProductSelector.js';
   import { useAuth } from '../../src/contexts/AuthContext';
@@ -92,9 +92,20 @@ export default function MesasScreen() {
   const [fecharValorPago, setFecharValorPago] = useState<number>(0);
   const [finalizandoMesa, setFinalizandoMesa] = useState(false);
 
-  // Estado para cancelar mesa
+
+  // Estados para cancelar mesa
   const [cancelMesaModalVisible, setCancelMesaModalVisible] = useState(false);
   const [cancelMesaTarget, setCancelMesaTarget] = useState<Mesa | null>(null);
+
+  // Estados para busca de clientes no Abrir Mesa
+  const [clients, setClients] = useState<any[]>([]);
+  const [selectedCliente, setSelectedCliente] = useState<any | null>(null);
+  const [showClientModal, setShowClientModal] = useState(false);
+  const [searchClientQuery, setSearchClientQuery] = useState('');
+  
+  const [showRegisterModal, setShowRegisterModal] = useState(false);
+  const [registerForm, setRegisterForm] = useState({ nome: '', fone: '', endereco: '', cidade: '', estado: '' });
+  const [registerLoading, setRegisterLoading] = useState(false);
 
   // Estados para Juntar Mesas
   const [mergeMode, setMergeMode] = useState(false);
@@ -601,6 +612,22 @@ export default function MesasScreen() {
     };
   }, []);
 
+  // Search Clients Effect
+  useEffect(() => {
+    const delay = setTimeout(async () => {
+        if (searchClientQuery.length > 2) {
+            try {
+                const res = await api.get('/customer/list', { params: { nome: searchClientQuery } });
+                setClients(res.data || []);
+            } catch (e) { console.error('Erro ao buscar clientes', e); }
+        } else {
+           if (searchClientQuery === '') setClients([]);
+        }
+    }, 500);
+    return () => clearTimeout(delay);
+  }, [searchClientQuery]);
+
+
 useEffect(() => {
   if (realtimeConnected) return;
   let since = Date.now();
@@ -818,12 +845,64 @@ useEffect(() => {
   // Função para abrir mesa
   const abrirMesa = (mesa: Mesa) => {
     setMesaSelecionada(mesa);
+    // Limpar estados
+    setClients([]);
+    setSearchClientQuery('');
+    setSelectedCliente(null);
     setFormAbrirMesa({
       nomeResponsavel: '',
       funcionarioResponsavel: '',
       observacoes: ''
     });
     setAbrirMesaModalVisible(true);
+  };
+  
+  const handleSelectClient = (client: any) => {
+     setSelectedCliente(client);
+     setFormAbrirMesa(prev => ({ ...prev, nomeResponsavel: client.nome }));
+     setShowClientModal(false);
+  };
+
+  const handleUseNameOnly = async (name: string) => {
+    try {
+        if (!name || name.length < 3) return;
+        const res = await customerService.create({ nome: name, fone: '', endereco: '' });
+        if (res.data && res.data.customer) {
+            handleSelectClient(res.data.customer);
+        } else {
+            Alert.alert('Erro', 'Não foi possível criar o cliente temporário.');
+        }
+    } catch (e: any) {
+        console.error(e);
+        const msg = e.response?.data?.error || e.message || 'Falha ao usar nome temporário';
+        Alert.alert('Erro', msg);
+    }
+  };
+
+  const handleRegisterClient = async () => {
+    if (!registerForm.nome) {
+        Alert.alert('Erro', 'Nome é obrigatório');
+        return;
+    }
+    setRegisterLoading(true);
+    try {
+        const res = await customerService.create(registerForm);
+        if (res.data && res.data.customer) {
+            setRegisterForm({ nome: '', fone: '', endereco: '', cidade: '', estado: '' });
+            setShowRegisterModal(false);
+            setTimeout(() => {
+                handleSelectClient(res.data.customer);
+                Alert.alert('Sucesso', 'Cliente cadastrado!');
+            }, 100);
+        } else {
+            Alert.alert('Erro', 'Servidor não retornou dados do cliente.');
+        }
+    } catch (e: any) {
+        const msg = e.response?.data?.error || e.message || 'Erro ao cadastrar';
+        Alert.alert('Erro', msg);
+    } finally {
+        setRegisterLoading(false);
+    }
   };
 
   // Função para confirmar abertura da mesa
@@ -1819,12 +1898,17 @@ useEffect(() => {
                 <Text style={styles.formLabel}>
                   Nome do Responsável <Text style={styles.requiredField}>*</Text>
                 </Text>
-                <TextInput
-                  style={styles.formInput}
-                  value={formAbrirMesa.nomeResponsavel}
-                  onChangeText={(text) => setFormAbrirMesa(prev => ({ ...prev, nomeResponsavel: text }))}
-                  placeholder="Nome do cliente responsável"
-                />
+                 <TouchableOpacity
+                    style={[styles.formInput, { justifyContent: 'center' }]}
+                    onPress={() => setShowClientModal(true)}
+                  >
+                     <View style={{flexDirection:'row', justifyContent:'space-between', alignItems:'center'}}>
+                        <Text style={{ color: formAbrirMesa.nomeResponsavel ? '#000' : '#888' }}>
+                            {formAbrirMesa.nomeResponsavel || 'Buscar ou Cadastrar Cliente...'}
+                        </Text>
+                        <SafeIcon name="search" size={20} color="#666" fallbackText="🔍" />
+                     </View>
+                  </TouchableOpacity>
               </View>
 
               <View style={styles.dropdownFormGroup}>
@@ -2079,6 +2163,181 @@ useEffect(() => {
           </View>
         </View>
       )}
+      {/* Modal Selecionar Cliente */}
+      <Modal
+          visible={showClientModal}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowClientModal(false)}
+      >
+          <View style={styles.modalOverlay}>
+              <View style={[styles.modalContainer, { maxHeight: '80%' }]}>
+                   <View style={styles.modalHeader}>
+                    <Text style={styles.modalTitle}>Selecionar Cliente</Text>
+                    <TouchableOpacity
+                      style={styles.modalCloseButton}
+                      onPress={() => setShowClientModal(false)}
+                    >
+                      <SafeIcon name="close" size={24} color="#666" fallbackText="×" />
+                    </TouchableOpacity>
+                  </View>
+                  <View style={{ padding: 16 }}>
+                    <TextInput
+                        style={[styles.formInput, {marginBottom: 10}]}
+                        placeholder="Buscar por nome..."
+                        value={searchClientQuery}
+                        onChangeText={setSearchClientQuery}
+                        autoFocus
+                    />
+                  </View>
+                  
+                  {clients.length === 0 && searchClientQuery.length > 2 && (
+                       <View style={{ paddingHorizontal: 16 }}>
+                           <TouchableOpacity style={{ padding: 12, backgroundColor: '#E3F2FD', borderRadius: 8, marginBottom: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}
+                               onPress={() => {
+                                   setRegisterForm({ ...registerForm, nome: searchClientQuery });
+                                   setShowRegisterModal(true);
+                               }}
+                           >
+                               <SafeIcon name="person-add" size={20} color="#2196F3" fallbackText="+" />
+                               <Text style={{ color: '#2196F3', fontWeight: 'bold', marginLeft: 8 }}>Cadastrar Completo: "{searchClientQuery}"</Text>
+                           </TouchableOpacity>
+
+                           <TouchableOpacity style={{ padding: 12, backgroundColor: '#FFF3E0', borderRadius: 8, marginBottom: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}
+                               onPress={() => handleUseNameOnly(searchClientQuery)}
+                           >
+                               <SafeIcon name="document-text" size={20} color="#FF9800" fallbackText="T" />
+                               <Text style={{ color: '#FF9800', fontWeight: 'bold', marginLeft: 8 }}>Usar Apenas Nome: "{searchClientQuery}"</Text>
+                           </TouchableOpacity>
+                       </View>
+                  )}
+                  <ScrollView style={{ paddingHorizontal: 16, marginBottom: 16 }}>
+                      {clients.map(c => (
+                          <TouchableOpacity key={c.id || c._id} 
+                              style={{ padding: 16, borderBottomWidth: 1, borderBottomColor: '#eee' }}
+                              onPress={() => handleSelectClient(c)}
+                          >
+                              <Text style={{ fontSize: 16, fontWeight: 'bold' }}>{c.nome}</Text>
+                              {c.endereco && <Text style={{ fontSize: 12, color: '#666' }}>{c.endereco}</Text>}
+                          </TouchableOpacity>
+                      ))}
+                  </ScrollView>
+              </View>
+          </View>
+      </Modal>
+
+      {/* Modal Cadastro Rápido de Cliente */}
+      <Modal
+          visible={showRegisterModal}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowRegisterModal(false)}
+      >
+          <View style={styles.modalOverlay}>
+              <View style={[styles.modalContainer, { maxHeight: '90%' }]}>
+                  <View style={styles.modalHeader}>
+                    <Text style={styles.modalTitle}>Novo Cliente</Text>
+                    <TouchableOpacity
+                      style={styles.modalCloseButton}
+                      onPress={() => setShowRegisterModal(false)}
+                    >
+                      <SafeIcon name="close" size={24} color="#666" fallbackText="×" />
+                    </TouchableOpacity>
+                  </View>
+                  <ScrollView style={styles.modalContent}>
+                      <View style={styles.formGroup}>
+                        <Text style={styles.formLabel}>Nome <Text style={styles.requiredField}>*</Text></Text>
+                        <TextInput 
+                            style={styles.formInput} 
+                            value={registerForm.nome}
+                            onChangeText={t => setRegisterForm({...registerForm, nome: t})}
+                        />
+                      </View>
+                      
+                      <View style={styles.formGroup}>
+                        <Text style={styles.formLabel}>Whatsapp / Telefone</Text>
+                        <TextInput 
+                            style={styles.formInput} 
+                            value={registerForm.fone}
+                            keyboardType="phone-pad"
+                            onChangeText={t => setRegisterForm({...registerForm, fone: t})}
+                        />
+                      </View>
+
+                      <View style={styles.formGroup}>
+                        <Text style={styles.formLabel}>CEP (Opcional)</Text>
+                        <TextInput 
+                            style={styles.formInput} 
+                            placeholder="Digite CEP para buscar"
+                            keyboardType="numeric"
+                            onBlur={async () => {
+                                if (registerForm.endereco?.length > 5) return; 
+                                const c = (registerForm as any).cep?.replace(/\D/g,'');
+                                if(c?.length===8) {
+                                    try {
+                                        const r = await fetch(`https://viacep.com.br/ws/${c}/json/`);
+                                        const d = await r.json();
+                                        if(!d.erro) {
+                                            setRegisterForm(prev => ({
+                                                ...prev,
+                                                endereco: `${d.logradouro}, ${d.bairro}`,
+                                                cidade: d.localidade,
+                                                estado: d.uf
+                                            }));
+                                        }
+                                    } catch {}
+                                }
+                            }}
+                            onChangeText={t => setRegisterForm({...registerForm, cep: t} as any)} 
+                        />
+                      </View>
+
+                      <View style={styles.formGroup}>
+                        <Text style={styles.formLabel}>Endereço Completo</Text>
+                        <TextInput 
+                            style={styles.formInput} 
+                            value={registerForm.endereco}
+                            placeholder="Rua, Número, Bairro"
+                            onChangeText={t => setRegisterForm({...registerForm, endereco: t})}
+                        />
+                      </View>
+
+                      <View style={{ flexDirection: 'row', gap: 10 }}>
+                          <View style={{ flex: 1 }}>
+                              <Text style={styles.formLabel}>Cidade</Text>
+                              <TextInput 
+                                  style={styles.formInput} 
+                                  value={registerForm.cidade}
+                                  onChangeText={t => setRegisterForm({...registerForm, cidade: t})}
+                              />
+                          </View>
+                          <View style={{ width: 80 }}>
+                              <Text style={styles.formLabel}>UF</Text>
+                              <TextInput 
+                                  style={styles.formInput} 
+                                  value={registerForm.estado}
+                                  onChangeText={t => setRegisterForm({...registerForm, estado: t})}
+                              />
+                          </View>
+                      </View>
+                  </ScrollView>
+
+                  <View style={styles.modalActions}>
+                      <TouchableOpacity style={[styles.modalButton, styles.cancelButton]} onPress={() => setShowRegisterModal(false)}>
+                          <Text style={styles.cancelButtonText}>Cancelar</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity 
+                          style={[styles.modalButton, styles.confirmButton]} 
+                          onPress={handleRegisterClient}
+                          disabled={registerLoading}
+                      >
+                          {registerLoading ? <ActivityIndicator color="#fff" /> : <Text style={styles.confirmButtonText}>Salvar</Text>}
+                      </TouchableOpacity>
+                  </View>
+              </View>
+          </View>
+      </Modal>
+
     </View>
   );
 }
