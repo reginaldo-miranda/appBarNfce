@@ -42,7 +42,11 @@ import PaymentPromptModal from '../src/components/PaymentPromptModal';
 
 
 export default function SaleScreen() {
-  const { tipo, mesaId, vendaId, viewMode } = useLocalSearchParams();
+  const params = useLocalSearchParams();
+  const { mesaId, vendaId, viewMode } = params;
+  // Inferir tipo se não vier explícito, mas tiver mesaId
+  const tipo = params.tipo || (mesaId ? 'mesa' : undefined);
+
   const { user } = useAuth() as any;
   // const { confirmRemove } = useConfirmation();
   
@@ -1106,6 +1110,67 @@ export default function SaleScreen() {
   // Estado específico para loading do botão de finalizar
   const [finalizing, setFinalizing] = useState(false);
 
+  // Helper para calcular itens restantes (Lógica adaptada de PaymentSplitModal)
+  const calculateRemainingItemsPayload = (currentSale: any, totalRem: number) => {
+      if (!currentSale || !currentSale.itens) return [];
+
+      const paidMap = new Map<string, number>();
+      if (currentSale.caixaVendas && Array.isArray(currentSale.caixaVendas)) {
+        currentSale.caixaVendas.forEach((cv: any) => {
+          let pagos: any[] = [];
+          if (Array.isArray(cv.itensPagos)) pagos = cv.itensPagos;
+          else if (typeof cv.itensPagos === 'string') { try { pagos = JSON.parse(cv.itensPagos); } catch{} }
+          
+          pagos.forEach((p: any) => {
+            const pid = String(p.id);
+            const val = Number(p.paidAmount) || 0;
+            paidMap.set(pid, (paidMap.get(pid) || 0) + val);
+          });
+        });
+      }
+
+      let sumItemRemaining = 0;
+      const itemsRaw = currentSale.itens.map((item: any) => {
+          const itemId = String(item._id || item.id);
+          const isStatusPaid = item.status === 'pago';
+          const partialPaid = paidMap.get(itemId) || 0;
+          const total = Number(item.subtotal);
+          const paid = isStatusPaid ? total : Math.min(partialPaid, total);
+          const remaining = Math.max(0, total - paid);
+          sumItemRemaining += remaining;
+          return { id: itemId, remaining, paid };
+      });
+
+      // Adicionar Taxa de Entrega se houver e não paga
+      const fee = Number(currentSale.deliveryFee || 0);
+      if (fee > 0) {
+          const feeId = 'delivery-fee';
+          const feePaid = paidMap.get(feeId) || 0;
+          const feeRemaining = Math.max(0, fee - feePaid);
+          if (feeRemaining > 0.00) {
+              itemsRaw.push({ id: feeId, remaining: feeRemaining, paid: feePaid });
+              sumItemRemaining += feeRemaining;
+          }
+      }
+
+      // Distribuição de pagamento genérico se houver
+      // Se totalRemaining < sumItemRemaining, temos que abater proporcionalmente ou sequencialmente
+      // Mas aqui no QuickPay, queremos PAGAR TUDO que falta.
+      // Então o payload deve ser exatamente o 'remaining' de cada item.
+      
+      // Ajuste fino: Se houver discrepância de centavos, confiamos no cálculo local
+      
+      const payload = itemsRaw
+        .filter((i:any) => i.remaining > 0.00)
+        .map((i:any) => ({
+             id: i.id,
+             paidAmount: i.remaining, // Pagar tudo que falta
+             fullyPaid: true
+        }));
+      
+      return payload;
+  };
+
   const finalizeSale = async (options?: { silent?: boolean; skipNavigation?: boolean }) => {
     console.log('🔄 FINALIZAR VENDA - Iniciando processo');
     
@@ -1567,7 +1632,9 @@ export default function SaleScreen() {
               </>
             )}
 
-            {/* Seleção de Cliente no Modal de Finalização */}
+            {/* Seleção de Cliente no Modal de Finalização - Ocultar se for Mesa */ }
+            { tipo !== 'mesa' ? (
+             <>
              <Text style={styles.modalLabel}>Cliente:</Text>
              <TouchableOpacity
               style={[
@@ -1592,6 +1659,19 @@ export default function SaleScreen() {
               </View>
               <Ionicons name="search" size={18} color={selectedCliente ? '#2196F3' : '#999'} />
             </TouchableOpacity>
+            </>
+            ) : (
+                // Exibir apenas o nome do responsável se for mesa
+                <View style={{ marginBottom: 16 }}>
+                    <Text style={styles.modalLabel}>Responsável pela Mesa:</Text>
+                    <View style={[styles.paymentOption, { backgroundColor: '#f5f5f5', borderColor: '#ddd' }]}>
+                        <Ionicons name="person" size={20} color="#666" />
+                        <Text style={styles.paymentOptionText}>
+                            {nomeResponsavel || 'Não informado'}
+                        </Text>
+                    </View>
+                </View>
+            )}
 
             
             <TouchableOpacity 
@@ -1629,6 +1709,12 @@ export default function SaleScreen() {
               </TouchableOpacity>
             ))}
             
+            {totalRemaining > 0.05 && (
+                <Text style={{ textAlign: 'center', color: '#F44336', marginBottom: 10, width: '100%' }}>
+                  Para finalizar, o saldo deve ser zero. Clique em "Pagar & Finalizar" para quitar o restante agora.
+                </Text>
+            )}
+
             <View style={styles.modalButtons}>
               <TouchableOpacity
                 style={[styles.modalButton, styles.cancelButton]}
@@ -1637,23 +1723,16 @@ export default function SaleScreen() {
                 <Text style={styles.cancelButtonText}>Cancelar</Text>
               </TouchableOpacity>
               
-              {totalRemaining > 0.05 && (
-                <Text style={{ textAlign: 'center', color: '#F44336', marginBottom: 10, width: '100%' }}>
-                  Para finalizar, o saldo deve ser zero. Realize o pagamento pelo botão "Dividir / Parcial".
-                </Text>
-              )}
-              
               <TouchableOpacity
                 style={[
                   styles.modalButton, 
                   styles.confirmButton,
-                  // Se faltar pagar (totalRemaining > 0.05), o botão fica cinza e desabilitado
-                  // Se já estiver pago (totalRemaining <= 0.05), o botão fica verde e habilitado para FINALIZAR
-                  totalRemaining > 0.05 && { backgroundColor: '#ccc' }
+                  // Botão agora sempre habilitado (verde) se houver saldo a pagar ou se já estiver pago
+                  { backgroundColor: '#4CAF50' }
                 ]}
-                disabled={totalRemaining > 0.05}
-                onPress={() => {
-                  console.log('🔥 BOTÃO CONFIRMAR CLICADO!');
+                disabled={finalizing}
+                onPress={async () => {
+                  console.log('🔥 BOTÃO FINALIZAR CLICADO!');
                   
                   // Se já está pago, apenas finaliza
                   if (totalRemaining <= 0.05) {
@@ -1662,13 +1741,52 @@ export default function SaleScreen() {
                      return;
                   }
 
-                  // Código inalcançável se o botão estiver disabled, mas por segurança:
-                  console.log('💰 Total restante:', totalRemaining);
+                  // Se falta pagar, realiza o pagamento total com o método selecionado e DEPOIS finaliza
+                  console.log(`💰 Pagando restante (${totalRemaining}) e finalizando...`);
+                  
+                  try {
+                      setFinalizing(true);
+                      
+                      if (!sale) {
+                        Alert.alert('Erro', 'Venda não identificada.');
+                        setFinalizing(false);
+                        return;
+                      }
+
+                      // 1. Calcular payload de pagamento (todos os itens restantes)
+                      const itemsPayload = calculateRemainingItemsPayload(sale, totalRemaining);
+                      
+                      const payPayload = {
+                          paymentInfo: {
+                              method: paymentMethod, // Método selecionado no modal
+                              totalAmount: totalRemaining
+                          },
+                          items: itemsPayload
+                      };
+
+                      console.log('Enviando pagamento:', payPayload);
+                      const saleId = sale._id || (sale as any).id;
+                      await saleService.payItems(saleId, payPayload);
+                      
+                      // 2. Finalizar
+                      // Pequeno delay para garantir propciação do pagamento se necessário
+                      await finalizeSale();
+
+                  } catch (e: any) {
+                      console.error('Erro ao realizar pagamento rápido:', e);
+                      const msg = e.response?.data?.error || e.message || 'Erro ao processar pagamento.';
+                      Alert.alert('Erro', msg);
+                      setFinalizing(false);
+                  }
                 }}
               >
-                <Text style={styles.confirmButtonText}>
-                  {totalRemaining <= 0.05 ? 'Finalizar Venda' : 'Confirmar'}
-                </Text>
+                {finalizing ? (
+                    <ActivityIndicator color="#fff" />
+                ) : (
+                    <Text style={styles.confirmButtonText}>
+                    {totalRemaining <= 0.05 ? 'Finalizar Venda' : `Pagar R$ ${totalRemaining.toFixed(2)} & Finalizar`}
+                    </Text>
+                )}
               </TouchableOpacity>
             </View>
           </View>
@@ -2162,6 +2280,7 @@ const styles = StyleSheet.create({
   confirmButtonText: {
     color: '#fff',
     fontWeight: 'bold',
+    textAlign: 'center',
   },
   headerRightContainer: {
     flexDirection: 'row',

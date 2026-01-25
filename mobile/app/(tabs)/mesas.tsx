@@ -479,10 +479,20 @@ export default function MesasScreen() {
 
   async function loadFuncionarios() {
     try {
+      console.log('🔄 loadFuncionarios: Buscando funcionários...');
       const response = await employeeService.getAll();
-      setFuncionarios(response.data || []);
+      const lista = response.data || [];
+      console.log(`✅ loadFuncionarios: ${lista.length} encontrados.`);
+      setFuncionarios(lista);
+      
+      // Auto-selecionar o primeiro ativo se não houver seleção
+      /* const primeiroAtivo = lista.find(f => f.ativo);
+      if (primeiroAtivo) {
+          // Não vamos auto-selecionar aqui pois isso roda na montagem e não na abertura do modal
+      } */
     } catch (error: any) {
-      console.error('Erro ao carregar funcionários:', error);
+      console.error('❌ Erro ao carregar funcionários:', error);
+      Alert.alert('Erro', 'Falha ao carregar lista de funcionários.');
     }
   }
 
@@ -1079,7 +1089,7 @@ useEffect(() => {
   const adicionarProdutos = (mesa: Mesa) => {
     router.push({
       pathname: '/sale',
-      params: { mesaId: mesa._id, mesaNumero: mesa.numero }
+      params: { mesaId: mesa._id, mesaNumero: mesa.numero, tipo: 'mesa' }
     });
   };
 
@@ -1087,7 +1097,7 @@ useEffect(() => {
   const verComanda = (mesa: Mesa) => {
     router.push({
       pathname: '/sale',
-      params: { mesaId: mesa._id, mesaNumero: mesa.numero, viewOnly: 'true' }
+      params: { mesaId: mesa._id, mesaNumero: mesa.numero, viewOnly: 'true', tipo: 'mesa' }
     });
   };
 
@@ -1915,17 +1925,34 @@ useEffect(() => {
                 <Text style={styles.formLabel}>
                   Funcionário Responsável <Text style={styles.requiredField}>*</Text>
                 </Text>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
                 <TouchableOpacity
-                  style={styles.dropdownButton}
-                  onPress={() => setFuncionarioDropdownVisible(!funcionarioDropdownVisible)}
+                  style={[styles.dropdownButton, { flex: 1, borderColor: (!formAbrirMesa.funcionarioResponsavel && abindoMesa) ? 'red' : '#ddd' }]}
+                  onPress={() => {
+                      if (funcionarios.length === 0) {
+                          Alert.alert(
+                              'Sem Funcionários', 
+                              'Nenhum funcionário carregado. Tentar recarregar?',
+                              [
+                                  { text: 'Não', style: 'cancel'},
+                                  { text: 'Sim', onPress: () => loadFuncionarios() }
+                              ]
+                          );
+                      } else {
+                          setFuncionarioDropdownVisible(!funcionarioDropdownVisible);
+                      }
+                  }}
                 >
                   <Text style={[
                     styles.dropdownButtonText,
-                    !formAbrirMesa.funcionarioResponsavel && styles.dropdownPlaceholder
+                    !formAbrirMesa.funcionarioResponsavel && styles.dropdownPlaceholder,
+                    funcionarios.length === 0 && { color: '#F44336' }
                   ]}>
-                    {formAbrirMesa.funcionarioResponsavel
-                      ? funcionarios.find((f: Funcionario) => f._id === formAbrirMesa.funcionarioResponsavel)?.nome
-                      : 'Selecione um funcionário'
+                    {funcionarios.length === 0 
+                        ? 'Nenhum funcionário encontrado (Toque p/ recarregar)' 
+                        : (formAbrirMesa.funcionarioResponsavel
+                            ? funcionarios.find((f: Funcionario) => f._id === formAbrirMesa.funcionarioResponsavel)?.nome
+                            : 'Selecione um funcionário')
                     }
                   </Text>
                   <SafeIcon
@@ -1935,6 +1962,7 @@ useEffect(() => {
                     fallbackText={funcionarioDropdownVisible ? "↑" : "↓"}
                   />
                 </TouchableOpacity>
+                </View>
 
                 {funcionarioDropdownVisible && (
                   <View style={styles.dropdownList}>
@@ -2013,8 +2041,22 @@ useEffect(() => {
                 <Text style={styles.cancelButtonText}>Cancelar</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.modalButton, styles.confirmButton]}
-                onPress={confirmarAbrirMesa}
+                style={[styles.modalButton, styles.confirmButton, (!formAbrirMesa.nomeResponsavel || !formAbrirMesa.funcionarioResponsavel) && { opacity: 0.5 }]}
+                onPress={() => {
+                    if (!formAbrirMesa.nomeResponsavel.trim()) {
+                        Alert.alert('Campo Obrigatório', 'Por favor, informe o nome do responsável pela mesa.');
+                        return;
+                    }
+                    if (!formAbrirMesa.funcionarioResponsavel) {
+                        if (funcionarios.length === 0) {
+                            Alert.alert('Erro de Configuração', 'Não há funcionários cadastrados. Vá em Admin > Funcionários para cadastrar.');
+                        } else {
+                            Alert.alert('Campo Obrigatório', 'Selecione um funcionário responsável.');
+                        }
+                        return;
+                    }
+                    confirmarAbrirMesa();
+                }}
                 disabled={abindoMesa}
               >
                 {abindoMesa ? (
