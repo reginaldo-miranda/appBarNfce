@@ -28,6 +28,7 @@ import { STORAGE_KEYS } from '../../src/services/storage';
   import { events } from '../../src/utils/eventBus';
   import PasswordConfirmModal from '../../src/components/PasswordConfirmModal';
 import ReceiptModal from '../../src/components/ReceiptModal';
+import PixModal from '../../src/components/PixModal';
 import { useFocusEffect } from '@react-navigation/native';
 
 interface Funcionario {
@@ -91,6 +92,7 @@ export default function MesasScreen() {
   const [fecharSaleId, setFecharSaleId] = useState<string | null>(null);
   const [fecharValorPago, setFecharValorPago] = useState<number>(0);
   const [finalizandoMesa, setFinalizandoMesa] = useState(false);
+  const [pixModalVisible, setPixModalVisible] = useState(false);
 
 
   // Estados para cancelar mesa
@@ -1168,8 +1170,15 @@ useEffect(() => {
   };
 
   // Confirmar fechamento com pagamento
-  const confirmarFechamentoMesa = async () => {
+  const confirmarFechamentoMesa = async (isPixConfirmed?: boolean) => {
     console.log('🔄 CONFIRMAR BOTÃO CLICADO - Iniciando processo de fechamento');
+    
+    // Interceptação para PIX
+    if (fecharPaymentMethod === 'pix' && isPixConfirmed !== true) {
+        setFecharMesaModalVisible(false);
+        setPixModalVisible(true);
+        return;
+    }
     
     if (!fecharMesaSelecionada) {
       Alert.alert('Erro', 'Mesa não selecionada.');
@@ -2379,6 +2388,18 @@ useEffect(() => {
               </View>
           </View>
       </Modal>
+
+      <PixModal
+        visible={pixModalVisible}
+        amount={fecharTotal - fecharValorPago}
+        transactionId={fecharMesaSelecionada ? `Mesa ${fecharMesaSelecionada.numero}` : 'Mesa'}
+        onClose={() => setPixModalVisible(false)}
+        onConfirm={() => {
+            setPixModalVisible(false);
+            // Chama a confirmação real passando flag true
+            confirmarFechamentoMesa(true);
+        }}
+      />
 
     </View>
   );

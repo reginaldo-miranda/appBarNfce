@@ -14,6 +14,7 @@ import ScreenIdentifier from '../../src/components/ScreenIdentifier';
 import { events } from '../../src/utils/eventBus';
 import PasswordConfirmModal from '../../src/components/PasswordConfirmModal';
 import ReceiptModal from '../../src/components/ReceiptModal';
+import PixModal from '../../src/components/PixModal';
 import { SafeIcon } from '../../components/SafeIcon';
 
 function parseTimeToMs(timeStr: string) {
@@ -46,6 +47,7 @@ export default function ComandasAbertasScreen() {
   const [fecharSaleId, setFecharSaleId] = useState<string | null>(null);
   const [fecharValorPago, setFecharValorPago] = useState<number>(0);
   const [finalizandoComanda, setFinalizandoComanda] = useState(false);
+  const [pixModalVisible, setPixModalVisible] = useState(false);
 
   // Estado para cancelar comanda
   const [cancelComandaModalVisible, setCancelComandaModalVisible] = useState(false);
@@ -410,7 +412,14 @@ useEffect(() => {
   };
 
   // Função para confirmar fechamento de comanda com validações
-  const confirmarFechamentoComanda = async () => {
+  const confirmarFechamentoComanda = async (isPixConfirmed?: boolean) => {
+    // Intercepta PIX
+    if (fecharPaymentMethod === 'pix' && isPixConfirmed !== true) {
+        setFecharComandaModalVisible(false);
+        setPixModalVisible(true);
+        return;
+    }
+
     if (!fecharPaymentMethod) {
       Alert.alert('Erro', 'Selecione um método de pagamento.');
       return;
@@ -816,6 +825,17 @@ useEffect(() => {
         visible={receiptModalVisible} 
         sale={selectedReceiptSale} 
         onClose={() => setReceiptModalVisible(false)} 
+      />
+
+      <PixModal 
+        visible={pixModalVisible}
+        amount={Math.max(0, fecharTotal - fecharValorPago)}
+        transactionId={fecharComandaSelecionada ? (fecharComandaSelecionada.nomeComanda || fecharComandaSelecionada.numeroComanda) : 'Comanda'}
+        onClose={() => setPixModalVisible(false)}
+        onConfirm={() => {
+            setPixModalVisible(false);
+            confirmarFechamentoComanda(true);
+        }}
       />
     </View>
   );

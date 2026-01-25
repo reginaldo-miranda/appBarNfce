@@ -25,8 +25,8 @@ const ScreenIdentifier: React.FC<ScreenIdentifierProps> = ({
 const styles = StyleSheet.create({
   container: {
     position: 'absolute',
-    top: 50,
-    left: 10, // Changed from right: 10 to left: 10 to avoid conflict with header buttons
+    bottom: 20, // Changed from top: 50 to bottom: 20 to avoid header overlap
+    left: 20,
     backgroundColor: 'rgba(0, 0, 0, 0.7)',
     paddingHorizontal: 8,
     paddingVertical: 4,

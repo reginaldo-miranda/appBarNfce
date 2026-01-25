@@ -293,22 +293,26 @@ export default function HistoricoScreen() {
       </View>
 
       {/* Filtros de Data */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.dateFiltersContainer}>
-        {renderDateFilterButton('today', 'Hoje')}
-        {renderDateFilterButton('week', 'Semana')}
-        {renderDateFilterButton('month', 'Mês')}
-        {renderDateFilterButton('all', 'Todos')}
-      </ScrollView>
+      <View style={styles.filtersWrapper}>
+         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dateFiltersContent} style={styles.dateFiltersContainer}>
+           {renderDateFilterButton('today', 'Hoje')}
+           {renderDateFilterButton('week', 'Semana')}
+           {renderDateFilterButton('month', 'Mês')}
+           {renderDateFilterButton('all', 'Todos')}
+         </ScrollView>
+      </View>
 
       {/* Busca e Filtros de Tipo */}
-      <SearchAndFilter
-        searchText={searchText}
-        onSearchChange={setSearchText}
-        searchPlaceholder="Buscar por número, cliente ou funcionário..."
-        filters={typeFilters}
-        selectedFilter={typeFilter}
-        onFilterChange={handleFilterChange}
-      />
+      <View style={styles.searchWrapper}>
+          <SearchAndFilter
+            searchText={searchText}
+            onSearchChange={setSearchText}
+            searchPlaceholder="Buscar por número, cliente ou funcionário..."
+            filters={typeFilters}
+            selectedFilter={typeFilter}
+            onFilterChange={handleFilterChange}
+          />
+      </View>
 
       {/* Lista de Vendas */}
       <FlatList
@@ -429,12 +433,20 @@ const styles = StyleSheet.create({
     color: '#666',
     marginTop: 4,
   },
-  dateFiltersContainer: {
+  filtersWrapper: {
     backgroundColor: '#fff',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
+    paddingVertical: 8,
     borderBottomWidth: 1,
     borderBottomColor: '#f0f0f0',
+    minHeight: 60, // Altura mínima garantida
+    zIndex: 1, // Garantir pilha
+  },
+  dateFiltersContainer: {
+    paddingHorizontal: 16,
+  },
+  dateFiltersContent: {
+      alignItems: 'center',
+      paddingVertical: 4,
   },
   dateFilterButton: {
     paddingHorizontal: 16,
@@ -445,6 +457,10 @@ const styles = StyleSheet.create({
   },
   activeDateFilterButton: {
     backgroundColor: '#2196F3',
+  },
+  searchWrapper: {
+      marginTop: 8, // Margem explícita
+      zIndex: 2,
   },
   dateFilterButtonText: {
     fontSize: 14,

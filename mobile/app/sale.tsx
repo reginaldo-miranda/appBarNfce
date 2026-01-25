@@ -38,7 +38,11 @@ import { events } from '../src/utils/eventBus';
 import PaymentSplitModal from '../src/components/PaymentSplitModal';
 import ImpressaoNfceModal from '../src/components/ImpressaoNfceModal';
 import NfceService from '../src/services/NfceService';
+import PixModal from '../src/components/PixModal';
 import PaymentPromptModal from '../src/components/PaymentPromptModal';
+
+
+
 
 
 export default function SaleScreen() {
@@ -143,6 +147,7 @@ export default function SaleScreen() {
 
   // Payment Prompt Modal State
   const [paymentPromptVisible, setPaymentPromptVisible] = useState(false);
+  const [pixModalVisible, setPixModalVisible] = useState(false);
 
 
   // API Key for Maps
@@ -1741,6 +1746,12 @@ export default function SaleScreen() {
                      return;
                   }
 
+                  if (paymentMethod === 'pix') {
+                      setModalVisible(false); // Fecha modal principal
+                      setPixModalVisible(true); // Abre modal PIX
+                      return;
+                  }
+
                   // Se falta pagar, realiza o pagamento total com o método selecionado e DEPOIS finaliza
                   console.log(`💰 Pagando restante (${totalRemaining}) e finalizando...`);
                   
@@ -2036,6 +2047,16 @@ export default function SaleScreen() {
           </View>
       </Modal>
 
+      <PixModal
+        visible={pixModalVisible}
+        amount={totalRemaining}
+        transactionId={sale ? String((sale as any).numeroVenda || (sale as any)._id || (sale as any).id || '').slice(-6) : 'Venda'}
+        onClose={() => setPixModalVisible(false)}
+        onConfirm={() => {
+            setPixModalVisible(false);
+            finalizeSale();
+        }}
+      />
     </SafeAreaView>
   );
 }
