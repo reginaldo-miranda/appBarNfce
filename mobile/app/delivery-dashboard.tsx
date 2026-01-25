@@ -288,6 +288,19 @@ export default function DeliveryDashboardScreen() {
                             })()}
                         </View>
 
+                        {/* Status de Pagamento Explícito */}
+                        <View style={{ marginBottom: 12, flexDirection: 'row', justifyContent: 'flex-end' }}>
+                             {(sale.status === 'finalizada' || sale.status === 'pago') ? (
+                                 <View style={{ backgroundColor: '#E8F5E9', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 4, borderWidth: 1, borderColor: '#4CAF50' }}>
+                                     <Text style={{ color: '#2E7D32', fontWeight: 'bold', fontSize: 12 }}>✅ PAGO</Text>
+                                 </View>
+                             ) : (
+                                 <View style={{ backgroundColor: '#FFEBEE', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 4, borderWidth: 1, borderColor: '#EF5350' }}>
+                                     <Text style={{ color: '#C62828', fontWeight: 'bold', fontSize: 12 }}>⚠️ A PAGAR</Text>
+                                 </View>
+                             )}
+                        </View>
+
                         <View style={styles.actions}>
                              {(sale.deliveryStatus !== 'delivered') && (
                              <TouchableOpacity 
