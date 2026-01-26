@@ -13,6 +13,7 @@ import {
   TextInput,
   Dimensions,
   Platform,
+  KeyboardAvoidingView,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router } from 'expo-router';
@@ -944,9 +945,13 @@ useEffect(() => {
         formAbrirMesa.observacoes.trim()
       );
       
-      Alert.alert('Sucesso', 'Mesa aberta com sucesso!');
       setAbrirMesaModalVisible(false);
       await loadMesas();
+      
+      // Navegar direto para adicionar itens
+      if (mesaSelecionada) {
+          adicionarProdutos(mesaSelecionada);
+      }
 
     } catch (error: any) {
       console.error('Erro ao abrir mesa:', error);
@@ -1899,19 +1904,76 @@ useEffect(() => {
         onRequestClose={() => setAbrirMesaModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
+          <KeyboardAvoidingView 
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
+            style={{ width: '100%', alignItems: 'center', justifyContent: 'center' }}
+          >
           <View style={styles.modalContainer}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>
-                Abrir Mesa {mesaSelecionada?.numero}
+                {showClientModal ? 'Selecionar Cliente' : `Abrir Mesa ${mesaSelecionada?.numero}`}
               </Text>
               <TouchableOpacity
                 style={styles.modalCloseButton}
-                onPress={() => setAbrirMesaModalVisible(false)}
+                onPress={() => {
+                    if (showClientModal) {
+                        setShowClientModal(false);
+                    } else {
+                        setAbrirMesaModalVisible(false);
+                    }
+                }}
               >
-                <SafeIcon name="close" size={24} color="#666" fallbackText="×" />
+                <SafeIcon name={showClientModal ? "arrow-back" : "close"} size={24} color="#666" fallbackText={showClientModal ? "<-" : "×"} />
               </TouchableOpacity>
             </View>
 
+            {showClientModal ? (
+                 <View style={{ height: 400, padding: 0 }}>
+                    <View style={{ padding: 16, borderBottomWidth: 1, borderBottomColor: '#eee' }}>
+                        <TextInput
+                            style={[styles.formInput, { marginBottom: 10 }]}
+                            placeholder="Buscar por nome..."
+                            value={searchClientQuery}
+                            onChangeText={setSearchClientQuery}
+                            autoFocus={true}
+                        />
+                    </View>
+                    
+                    {clients.length === 0 && searchClientQuery.length > 2 && (
+                       <View style={{ paddingHorizontal: 16, marginTop: 10 }}>
+                           <TouchableOpacity style={{ padding: 12, backgroundColor: '#E3F2FD', borderRadius: 8, marginBottom: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}
+                               onPress={() => {
+                                   setRegisterForm({ ...registerForm, nome: searchClientQuery });
+                                   setShowRegisterModal(true);
+                               }}
+                           >
+                               <SafeIcon name="person-add" size={20} color="#2196F3" fallbackText="+" />
+                               <Text style={{ color: '#2196F3', fontWeight: 'bold', marginLeft: 8 }}>Cadastrar: "{searchClientQuery}"</Text>
+                           </TouchableOpacity>
+
+                           <TouchableOpacity style={{ padding: 12, backgroundColor: '#FFF3E0', borderRadius: 8, marginBottom: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}
+                               onPress={() => handleUseNameOnly(searchClientQuery)}
+                           >
+                               <SafeIcon name="document-text" size={20} color="#FF9800" fallbackText="T" />
+                               <Text style={{ color: '#FF9800', fontWeight: 'bold', marginLeft: 8 }}>Usar Apenas Nome: "{searchClientQuery}"</Text>
+                           </TouchableOpacity>
+                       </View>
+                    )}
+
+                    <ScrollView style={{ flex: 1 }} keyboardShouldPersistTaps="handled">
+                        {clients.map(c => (
+                            <TouchableOpacity key={c.id || c._id} 
+                                style={{ padding: 16, borderBottomWidth: 1, borderBottomColor: '#eee' }}
+                                onPress={() => handleSelectClient(c)}
+                            >
+                                <Text style={{ fontSize: 16, fontWeight: 'bold' }}>{c.nome}</Text>
+                                {c.endereco && <Text style={{ fontSize: 12, color: '#666' }}>{c.endereco}</Text>}
+                            </TouchableOpacity>
+                        ))}
+                    </ScrollView>
+                 </View>
+            ) : (
+            <>
             <ScrollView style={styles.modalContent}>
               <View style={styles.formGroup}>
                 <Text style={styles.formLabel}>
@@ -2041,7 +2103,10 @@ useEffect(() => {
                 />
               </View>
             </ScrollView>
+            </>
+            )}
 
+            {!showClientModal && (
             <View style={styles.modalActions}>
               <TouchableOpacity
                 style={[styles.modalButton, styles.cancelButton]}
@@ -2075,7 +2140,9 @@ useEffect(() => {
                 )}
               </TouchableOpacity>
             </View>
+            )}
           </View>
+          </KeyboardAvoidingView>
         </View>
       </Modal>
 
@@ -2154,7 +2221,7 @@ useEffect(() => {
                   styles.confirmButton,
                   finalizandoMesa && { opacity: 0.6 }
                 ]}
-                onPress={confirmarFechamentoMesa}
+                onPress={() => confirmarFechamentoMesa()}
                 disabled={finalizandoMesa}
               >
                 {finalizandoMesa ? (
@@ -2214,68 +2281,7 @@ useEffect(() => {
           </View>
         </View>
       )}
-      {/* Modal Selecionar Cliente */}
-      <Modal
-          visible={showClientModal}
-          transparent
-          animationType="slide"
-          onRequestClose={() => setShowClientModal(false)}
-      >
-          <View style={styles.modalOverlay}>
-              <View style={[styles.modalContainer, { maxHeight: '80%' }]}>
-                   <View style={styles.modalHeader}>
-                    <Text style={styles.modalTitle}>Selecionar Cliente</Text>
-                    <TouchableOpacity
-                      style={styles.modalCloseButton}
-                      onPress={() => setShowClientModal(false)}
-                    >
-                      <SafeIcon name="close" size={24} color="#666" fallbackText="×" />
-                    </TouchableOpacity>
-                  </View>
-                  <View style={{ padding: 16 }}>
-                    <TextInput
-                        style={[styles.formInput, {marginBottom: 10}]}
-                        placeholder="Buscar por nome..."
-                        value={searchClientQuery}
-                        onChangeText={setSearchClientQuery}
-                        autoFocus
-                    />
-                  </View>
-                  
-                  {clients.length === 0 && searchClientQuery.length > 2 && (
-                       <View style={{ paddingHorizontal: 16 }}>
-                           <TouchableOpacity style={{ padding: 12, backgroundColor: '#E3F2FD', borderRadius: 8, marginBottom: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}
-                               onPress={() => {
-                                   setRegisterForm({ ...registerForm, nome: searchClientQuery });
-                                   setShowRegisterModal(true);
-                               }}
-                           >
-                               <SafeIcon name="person-add" size={20} color="#2196F3" fallbackText="+" />
-                               <Text style={{ color: '#2196F3', fontWeight: 'bold', marginLeft: 8 }}>Cadastrar Completo: "{searchClientQuery}"</Text>
-                           </TouchableOpacity>
 
-                           <TouchableOpacity style={{ padding: 12, backgroundColor: '#FFF3E0', borderRadius: 8, marginBottom: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}
-                               onPress={() => handleUseNameOnly(searchClientQuery)}
-                           >
-                               <SafeIcon name="document-text" size={20} color="#FF9800" fallbackText="T" />
-                               <Text style={{ color: '#FF9800', fontWeight: 'bold', marginLeft: 8 }}>Usar Apenas Nome: "{searchClientQuery}"</Text>
-                           </TouchableOpacity>
-                       </View>
-                  )}
-                  <ScrollView style={{ paddingHorizontal: 16, marginBottom: 16 }}>
-                      {clients.map(c => (
-                          <TouchableOpacity key={c.id || c._id} 
-                              style={{ padding: 16, borderBottomWidth: 1, borderBottomColor: '#eee' }}
-                              onPress={() => handleSelectClient(c)}
-                          >
-                              <Text style={{ fontSize: 16, fontWeight: 'bold' }}>{c.nome}</Text>
-                              {c.endereco && <Text style={{ fontSize: 12, color: '#666' }}>{c.endereco}</Text>}
-                          </TouchableOpacity>
-                      ))}
-                  </ScrollView>
-              </View>
-          </View>
-      </Modal>
 
       {/* Modal Cadastro Rápido de Cliente */}
       <Modal
@@ -2295,7 +2301,7 @@ useEffect(() => {
                       <SafeIcon name="close" size={24} color="#666" fallbackText="×" />
                     </TouchableOpacity>
                   </View>
-                  <ScrollView style={styles.modalContent}>
+                  <ScrollView style={styles.modalContent} keyboardShouldPersistTaps="handled">
                       <View style={styles.formGroup}>
                         <Text style={styles.formLabel}>Nome <Text style={styles.requiredField}>*</Text></Text>
                         <TextInput 
