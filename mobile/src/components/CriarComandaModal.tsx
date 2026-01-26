@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   Platform,
   Alert,
+  Dimensions,
 } from 'react-native'
 import { Picker } from '@react-native-picker/picker'
 import { Ionicons } from '@expo/vector-icons'
@@ -192,6 +193,41 @@ export default function CriarComandaModal({ visible, onClose, onSubmit }: Props)
                     <Text style={{color:'#d32f2f', marginBottom:8}}>Nenhum funcionário encontrado. Verifique a conexão com a API.</Text>
                   ) : null}
                   <View style={styles.pickerContainer}>
+                    {(Platform.OS !== 'web' || Dimensions.get('window').width < 768) ? (
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, padding: 8 }}>
+                            {funcionarios.map((func) => {
+                                  const isSelected = selectedFuncionario === func._id;
+                                  return (
+                                      <TouchableOpacity
+                                          key={func._id}
+                                          onPress={() => {
+                                              if (func.ativo) {
+                                                  setSelectedFuncionario(func._id);
+                                              } else {
+                                                  alert('Funcionário inativo.');
+                                              }
+                                          }}
+                                          style={{
+                                              paddingVertical: 10,
+                                              paddingHorizontal: 16,
+                                              borderRadius: 20,
+                                              backgroundColor: isSelected ? '#2196F3' : '#f0f0f0',
+                                              borderWidth: 1,
+                                              borderColor: isSelected ? '#1976D2' : '#e0e0e0',
+                                              opacity: func.ativo ? 1 : 0.6
+                                          }}
+                                      >
+                                          <Text style={{ 
+                                              color: isSelected ? '#fff' : '#333', 
+                                              fontWeight: isSelected ? 'bold' : 'normal' 
+                                          }}>
+                                              {func.nome}
+                                          </Text>
+                                      </TouchableOpacity>
+                                  );
+                            })}
+                        </ScrollView>
+                    ) : (
                     <Picker
                       selectedValue={selectedFuncionario}
                       onValueChange={(itemValue) => {
@@ -216,6 +252,7 @@ export default function CriarComandaModal({ visible, onClose, onSubmit }: Props)
                         />
                       ))}
                     </Picker>
+                    )}
                   </View>
                 </View>
 
@@ -292,6 +329,41 @@ export default function CriarComandaModal({ visible, onClose, onSubmit }: Props)
                   <Text style={{color:'#d32f2f', marginBottom:8}}>Nenhum funcionário encontrado. Verifique a conexão com a API.</Text>
                 ) : null}
                 <View style={styles.pickerContainer}>
+                  {(Platform.OS !== 'web' || Dimensions.get('window').width < 768) ? (
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, padding: 8 }}>
+                          {funcionarios.map((func) => {
+                                const isSelected = selectedFuncionario === func._id;
+                                return (
+                                    <TouchableOpacity
+                                        key={func._id}
+                                        onPress={() => {
+                                            if (func.ativo) {
+                                                setSelectedFuncionario(func._id);
+                                            } else {
+                                                alert('Funcionário inativo.');
+                                            }
+                                        }}
+                                        style={{
+                                            paddingVertical: 10,
+                                            paddingHorizontal: 16,
+                                            borderRadius: 20,
+                                            backgroundColor: isSelected ? '#2196F3' : '#f0f0f0',
+                                            borderWidth: 1,
+                                            borderColor: isSelected ? '#1976D2' : '#e0e0e0',
+                                            opacity: func.ativo ? 1 : 0.6
+                                        }}
+                                    >
+                                        <Text style={{ 
+                                            color: isSelected ? '#fff' : '#333', 
+                                            fontWeight: isSelected ? 'bold' : 'normal' 
+                                        }}>
+                                            {func.nome}
+                                        </Text>
+                                    </TouchableOpacity>
+                                );
+                          })}
+                      </ScrollView>
+                  ) : (
                   <Picker
                     selectedValue={selectedFuncionario}
                     onValueChange={(itemValue) => {
@@ -316,6 +388,7 @@ export default function CriarComandaModal({ visible, onClose, onSubmit }: Props)
                       />
                     ))}
                   </Picker>
+                  )}
                 </View>
               </View>
 

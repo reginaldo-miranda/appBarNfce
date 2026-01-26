@@ -1996,6 +1996,52 @@ useEffect(() => {
                 <Text style={styles.formLabel}>
                   Funcionário Responsável <Text style={styles.requiredField}>*</Text>
                 </Text>
+
+                {/* Mobile: Seleção Rápida (Chips) */}
+                {Platform.OS !== 'web' || Dimensions.get('window').width < 768 ? (
+                   <View>
+                       {funcionarios.length === 0 ? (
+                            <TouchableOpacity onPress={() => loadFuncionarios()} style={{ padding: 10, alignItems: 'center' }}>
+                                <Text style={{ color: '#F44336' }}>Nenhum funcionário. Toque p/ recarregar.</Text>
+                            </TouchableOpacity>
+                       ) : (
+                           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingVertical: 4 }}>
+                                {funcionarios.map((func) => {
+                                    const isSelected = formAbrirMesa.funcionarioResponsavel === func._id;
+                                    return (
+                                        <TouchableOpacity
+                                            key={func._id}
+                                            onPress={() => {
+                                                if (func.ativo) {
+                                                    setFormAbrirMesa(prev => ({ ...prev, funcionarioResponsavel: func._id }));
+                                                } else {
+                                                    Alert.alert('Inativo', 'Funcionário inativo.');
+                                                }
+                                            }}
+                                            style={{
+                                                paddingVertical: 10,
+                                                paddingHorizontal: 16,
+                                                borderRadius: 20,
+                                                backgroundColor: isSelected ? '#2196F3' : '#f0f0f0',
+                                                borderWidth: 1,
+                                                borderColor: isSelected ? '#1976D2' : '#e0e0e0',
+                                                opacity: func.ativo ? 1 : 0.6
+                                            }}
+                                        >
+                                            <Text style={{ 
+                                                color: isSelected ? '#fff' : '#333', 
+                                                fontWeight: isSelected ? 'bold' : 'normal' 
+                                            }}>
+                                                {func.nome}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    );
+                                })}
+                           </ScrollView>
+                       )}
+                   </View>
+                ) : (
+                /* Desktop: Dropdown Original */
                 <View style={{ flexDirection: 'row', gap: 8 }}>
                 <TouchableOpacity
                   style={[styles.dropdownButton, { flex: 1, borderColor: (!formAbrirMesa.funcionarioResponsavel && abindoMesa) ? 'red' : '#ddd' }]}
@@ -2034,8 +2080,10 @@ useEffect(() => {
                   />
                 </TouchableOpacity>
                 </View>
+                )}
 
-                {funcionarioDropdownVisible && (
+                {/* Dropdown List (Apenas Desktop) */}
+                {Platform.OS === 'web' && Dimensions.get('window').width >= 768 && funcionarioDropdownVisible && (
                   <View style={styles.dropdownList}>
                     <ScrollView style={styles.dropdownScrollView}>
                       <TouchableOpacity
