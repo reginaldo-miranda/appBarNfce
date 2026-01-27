@@ -196,6 +196,17 @@ class NfceService {
     // 3. Itens (Loop Real)
     // Se não tiver itens, isso vai dar erro de validação depois, mas ok.
     const itens = sale.itens || [];
+    
+    // Pré-Cálculo para Rateio de Frete (Agora mapeado como vOutro / Despesas Acessórias)
+    const totalProdutosParaRateio = itens.reduce((acc, it) => acc + (Number(it.quantidade) * Number(it.precoUnitario)), 0);
+    
+    // Mapeando Taxa de Entrega para vOutro (Despesas Acessórias) para evitar rejeição "NFC-e com Frete"
+    let vOutroGlobal = 0;
+    if (sale.deliveryFee) {
+        vOutroGlobal = Number(sale.deliveryFee);
+    }
+    let vOutroAcumulado = 0;
+    
     let totalProdutosCalculado = 0;
 
     itens.forEach((item, index) => {
@@ -210,6 +221,22 @@ class NfceService {
         const subtotalItem = Number((qCom * vUnCom).toFixed(2));
         totalProdutosCalculado += subtotalItem;
         
+        // Cálculo do vOutro do Item (Rateio Proporcional)
+        let itemOutro = 0;
+        if (vOutroGlobal > 0 && totalProdutosParaRateio > 0) {
+            const ratio = subtotalItem / totalProdutosParaRateio;
+            // Arredonda para 2 casas
+            itemOutro = Number((vOutroGlobal * ratio).toFixed(2));
+            
+            // Se for o último item, joga a diferença do arredondamento nele
+            if (index === itens.length - 1) {
+                // OBS: vOutroAcumulado soma os ANTERIORES.
+                itemOutro = Number((vOutroGlobal - vOutroAcumulado).toFixed(2));
+            }
+            
+            vOutroAcumulado += itemOutro;
+        }
+
         const vProd = subtotalItem.toFixed(2);
         
         const det = root.ele('det', { nItem: String(nItem) });
@@ -239,7 +266,14 @@ class NfceService {
         prodEle.ele('uTrib').txt('UN').up();
         prodEle.ele('qTrib').txt(qCom.toFixed(4)).up();
         prodEle.ele('vUnTrib').txt(vUnCom.toFixed(10)).up();
-        prodEle.ele('indTot').txt('1').up();
+        
+        // Adiciona vOutro no Item se houver
+        if (itemOutro > 0) {
+            prodEle.ele('vOutro').txt(itemOutro.toFixed(2)).up();
+            prodEle.ele('indTot').txt('1').up(); // Indica que compõe total
+        } else {
+            prodEle.ele('indTot').txt('1').up();
+        }
 
         // Impostos
         const imposto = det.ele('imposto');
@@ -275,9 +309,14 @@ class NfceService {
     });
 
     // 4. Totais
-    // IMPORTANTE: vNF deve ser a soma dos itens (vProd) +- descontos/fretes
-    // Se sale.total vier zerado, usamos o calculado. Se vier diferente, usamos o calculado para garantir coerência fiscal.
-    const vNF = totalProdutosCalculado.toFixed(2);
+    // IMPORTANTE: vNF deve ser a soma dos itens (vProd) +- descontos/fretes/outros
+    
+    // Tratamento Taxa de Entrega (Já calculado vOutroGlobal e distribuído)
+    const vOutroStr = vOutroGlobal.toFixed(2);
+    
+    // Total da Nota = Soma Produtos + Outros (vOutroGlobal)
+    const vNFVal = totalProdutosCalculado + vOutroGlobal;
+    const vNF = vNFVal.toFixed(2);
     
     const total = root.ele('total');
     const icmsTot = total.ele('ICMSTot');
@@ -288,9 +327,9 @@ class NfceService {
     icmsTot.ele('vBCST').txt('0.00').up();
     icmsTot.ele('vST').txt('0.00').up();
     icmsTot.ele('vFCPST').txt('0.00').up();
-    icmsTot.ele('vFCPSTRet').txt('0.00').up(); // Restore vFCPSTRet
-    icmsTot.ele('vProd').txt(vNF).up(); // vProd global = Soma dos vProd dos itens
-    icmsTot.ele('vFrete').txt('0.00').up();
+    icmsTot.ele('vFCPSTRet').txt('0.00').up(); 
+    icmsTot.ele('vProd').txt(totalProdutosCalculado.toFixed(2)).up(); 
+    icmsTot.ele('vFrete').txt('0.00').up(); // Frete ZERADO para NFC-e
     icmsTot.ele('vSeg').txt('0.00').up();
     icmsTot.ele('vDesc').txt('0.00').up();
     icmsTot.ele('vII').txt('0.00').up();
@@ -298,11 +337,13 @@ class NfceService {
     icmsTot.ele('vIPIDevol').txt('0.00').up();
     icmsTot.ele('vPIS').txt('0.00').up();
     icmsTot.ele('vCOFINS').txt('0.00').up();
-    icmsTot.ele('vOutro').txt('0.00').up();
-    icmsTot.ele('vNF').txt(vNF).up();
+    icmsTot.ele('vOutro').txt(vOutroStr).up(); // Inclui Taxa de Entrega aqui (vOutro)
+    icmsTot.ele('vNF').txt(vNF).up(); // Total Final
 
     // 5. Transporte
-    root.ele('transp').ele('modFrete').txt('9').up().up();
+    // Modalidade 9 (Sem frete) obrigatória para evitar rejeição em NFC-e com valor no campo frete
+    const modFrete = '9';
+    root.ele('transp').ele('modFrete').txt(modFrete).up().up();
 
     // 6. Pagamento
     const pag = root.ele('pag');
@@ -321,28 +362,76 @@ class NfceService {
     }
 
   generateAccessKey(sale, company) {
-    const cUF = this.getUfCode(company);
-    const now = new Date();
-    const AAMM = `${String(now.getFullYear()).substring(2)}${String(now.getMonth() + 1).padStart(2, '0')}`;
-    const CNPJ = company.cnpj.replace(/\D/g, '').padStart(14, '0');
-    const mod = '65';
-    const serie = String(company.serieNfce).padStart(3, '0');
-    const nNF = String(company.numeroInicialNfce).padStart(9, '0');
-    const tpEmis = '1'; 
-    const cNF = String(Math.floor(Math.random() * 99999999)).padStart(8, '0'); 
-    
-    const keyBase = `${cUF}${AAMM}${CNPJ}${mod}${serie}${nNF}${tpEmis}${cNF}`;
-    
-    const weights = [2, 3, 4, 5, 6, 7, 8, 9];
-    let sum = 0;
-    for (let i = 0; i < keyBase.length; i++) {
-        const digit = parseInt(keyBase.charAt(keyBase.length - 1 - i));
-        sum += digit * weights[i % 8];
-    }
-    const remainder = sum % 11;
-    const cDV = (remainder === 0 || remainder === 1) ? 0 : 11 - remainder;
+    try {
+        // 1. Sanitizar e Validar UF Code
+        let cUF = this.getUfCode(company);
+        if (!cUF || cUF.length !== 2) cUF = '43'; // Default RS
 
-    return `${keyBase}${cDV}`;
+        // 2. Data AAMM
+        const now = new Date();
+        const AAMM = `${String(now.getFullYear()).substring(2)}${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+        // 3. CNPJ
+        let CNPJ = (company.cnpj || '').replace(/\D/g, '');
+        if (!CNPJ || CNPJ.length === 0) throw new Error("CNPJ da empresa não encontrado para geração da chave");
+        CNPJ = CNPJ.padStart(14, '0');
+
+        // 4. Modelo (65 = NFC-e)
+        const mod = '65';
+
+        // 5. Série (Default 1) - Proteção contra undefined/null
+        let serieRaw = company.serieNfce;
+        if (serieRaw === undefined || serieRaw === null || isNaN(parseInt(serieRaw))) {
+            serieRaw = 1;
+        }
+        const serie = String(serieRaw).replace(/\D/g, '').padStart(3, '0');
+
+        // 6. Número da Nota (Default 1) - Proteção contra undefined/null
+        let nNFRaw = company.numeroInicialNfce;
+        if (nNFRaw === undefined || nNFRaw === null || isNaN(parseInt(nNFRaw))) {
+            nNFRaw = 1;
+        }
+        const nNF = String(nNFRaw).replace(/\D/g, '').padStart(9, '0');
+
+        // 7. Tipo Emissão (1 = Normal)
+        const tpEmis = '1'; 
+
+        // 8. Código Numérico (Aleatório)
+        // Garantir 8 dígitos numéricos sempre
+        const rnd = Math.floor(Math.random() * 99999999);
+        const cNF = String(rnd).padStart(8, '0'); 
+        
+        // Montagem Base (43 caracteres)
+        const keyBase = `${cUF}${AAMM}${CNPJ}${mod}${serie}${nNF}${tpEmis}${cNF}`;
+        
+        if (keyBase.length !== 43) {
+            console.error("[NFC-e] Erro Crítico: keyBase não tem 43 chars:", keyBase.length, keyBase);
+            throw new Error(`Erro interno na montagem da chave (len=${keyBase.length})`);
+        }
+
+        // 9. Dígito Verificador
+        const weights = [2, 3, 4, 5, 6, 7, 8, 9];
+        let sum = 0;
+        for (let i = 0; i < keyBase.length; i++) {
+            const digit = parseInt(keyBase.charAt(keyBase.length - 1 - i));
+            sum += digit * weights[i % 8];
+        }
+        const remainder = sum % 11;
+        const cDV = (remainder === 0 || remainder === 1) ? 0 : 11 - remainder;
+
+        const finalKey = `${keyBase}${cDV}`;
+
+        if (finalKey.length !== 44) {
+             throw new Error(`Chave gerada inválida (Tamanho: ${finalKey.length})`);
+        }
+
+        return finalKey;
+    } catch (e) {
+        console.error("[NFC-e] Falha na geração da chave de acesso:", e);
+        // Em caso de erro fatal, podemos retornar um placeholder ou re-throw.
+        // Re-throw é mais seguro para não emitir nota lixo.
+        throw e;
+    }
   }
 
   async signXML(xml, pfxPath, password) {
@@ -436,7 +525,11 @@ class NfceService {
       const digestValue = digestMatch[1];
       
       const cscToken = company.csc || 'TESTE';
-      const cscId = company.cscId ? String(company.cscId).replace(/^0+/, '') : '1'; 
+      let cscId = '1';
+      if (company.cscId) {
+          cscId = String(company.cscId).replace(/\D/g, '').replace(/^0+/, ''); // Remove non-digit and leading zeros
+          if (cscId === '') cscId = '1';
+      } 
       
       const isProd = company.ambienteFiscal === 'producao';
       const envKey = isProd ? 'producao' : 'homologacao';
@@ -597,20 +690,41 @@ class NfceService {
   }
 
   async getQrCode(accessKey, company, sale) {
-      // Re-generate for Display purposes
-      // Ideal implementation would store the URL from sendToSefaz, but this calculates a viewable one
-      // If we are just showing the user, validation doesn't matter as much as having the link work if they scan it
-      
-      const cscId = company.cscId || '000001';
+      // Re-generate for Display purposes with CORRECT Hash
+      const cscToken = company.csc || 'TESTE';
+      let cscId = '1';
+      if (company.cscId) {
+          cscId = String(company.cscId).replace(/\D/g, '').replace(/^0+/, ''); 
+          if (cscId === '') cscId = '1';
+      }
+
       const isProd = company.ambienteFiscal === 'producao';
       const envKey = isProd ? 'producao' : 'homologacao';
       
       const urls = this.getUrlsForCompany(company);
       const urlQrCodeHelper = urls[envKey].qrCode;
-
       
-      // We can't easily recover digVal without the XML, so we make a best effort or just a link to the portal
-      const qrCodeUrl = `${urlQrCodeHelper}?p=${accessKey}|2|${isProd?'1':'2'}|${cscId}`;
+      // QR Code params (NFC-e 4.0)
+      const params = [
+          accessKey,
+          '2', // nVersao
+          isProd ? '1' : '2', // tpAmb
+          Number(cscId) // idCSC
+      ].join('|');
+      
+      const stringToHash = params + cscToken;
+      const cHashCSC = crypto.createHash('sha1').update(stringToHash).digest('hex').toUpperCase();
+      
+      const qrCodeFullParam = `${params}|${cHashCSC}`;
+      // Use encodeURIComponent to ensure special chars like pipes are safe in URL
+      // Although SEFAZ usually accepts pipes, some browsers/readers need it. 
+      // Safe bet: encode only if issues persist, but valid samples often show raw pipes.
+      // Given the previous error "Invalid QR Code" was likely due to MISSING Hash, 
+      // we will stick to raw pipes first (or minimal encoding) to match sendToSefaz.
+      // BUT sendToSefaz logic I wrote previously didn't encode. 
+      // Let's assume raw pipes are fine if Hash is present.
+      
+      const qrCodeUrl = `${urlQrCodeHelper}?p=${qrCodeFullParam}`;
       
       try {
           const qrCodeImage = await QRCode.toDataURL(qrCodeUrl);
@@ -619,6 +733,7 @@ class NfceService {
               base64: qrCodeImage
           };
       } catch (err) {
+          console.error("Erro gerando imagem QR:", err);
           return null;
       }
   }

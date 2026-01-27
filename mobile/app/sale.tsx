@@ -1564,7 +1564,7 @@ export default function SaleScreen() {
                     }
 
                     // 1. Atualizar dados de delivery no backend (Sempre acontece primeiro)
-                    await saleService.updateDelivery(currentSaleId, {
+                    const updatedSaleRes = await saleService.updateDelivery(currentSaleId, {
                         isDelivery: true,
                         deliveryAddress,
                         deliveryDistance,
@@ -1573,6 +1573,10 @@ export default function SaleScreen() {
                         entregadorId: selectedEntregador?.id || selectedEntregador?._id,
                         funcionarioId: user?.id
                     });
+                    
+                    if (updatedSaleRes.data) {
+                        setSale(updatedSaleRes.data);
+                    }
 
                     setDeliveryModalVisible(false);
 

@@ -36,7 +36,7 @@ export const emitirNfce = async (req, res) => {
         }
 
         let attempts = 0;
-        const maxAttempts = 5;
+        const maxAttempts = 100; // Aumentado para lidar com grandes desincronias de numeração
         let lastError = null;
         let lastResult = null;
         let success = false;
@@ -67,7 +67,7 @@ export const emitirNfce = async (req, res) => {
                                         (sefazResult.motivo && (sefazResult.motivo.includes('204') || sefazResult.motivo.includes('539')));
 
                     if (isDuplicity) {
-                        console.warn(`[NFC-e] Erro de Duplicidade detectado na tentativa ${attempts}. Incrementando sequência...`);
+                        console.warn(`[NFC-e] Duplicidade detectada na seq ${company.numeroInicialNfce} (Tentativa ${attempts}/${maxAttempts}). Buscando próximo número...`);
                         
                         // Incrementa no Banco
                         await prisma.company.update({
@@ -282,13 +282,18 @@ export const generatePdf = async (req, res) => {
             }
         }
 
-        // Recalcular total baseado nos itens para garantir consistência com o XML
-        const totalVendaCalculada = sale.itens.reduce((acc, item) => {
+        // Recalcular total baseado nos itens + deliveryFee
+        const totalItens = sale.itens.reduce((acc, item) => {
             return acc + (Number(item.subtotal) || (Number(item.quantidade) * Number(item.precoUnitario)));
         }, 0);
         
-        // Se o total salvo for 0 ou muito diferente, preferimos o calculado (visual apenas)
-        const totalFinal = (Number(sale.total) <= 0.01) ? totalVendaCalculada : Number(sale.total);
+        const fee = Number(sale.deliveryFee || 0);
+        const discount = Number(sale.desconto || 0);
+        const totalVendaCalculada = totalItens + fee - discount;
+        
+        // Usar SEMPRE o total calculado para garantir que a impressão bata com a soma dos itens listados + taxas
+        // Isso corrige casos onde sale.total no banco pode estar desatualizado ou inconsistente (ex: só com a taxa)
+        const totalFinal = totalVendaCalculada;
 
         const html = `
             <html>
@@ -320,6 +325,13 @@ export const generatePdf = async (req, res) => {
                         <span>R$ ${Number(item.subtotal || (item.quantidade * item.precoUnitario)).toFixed(2)}</span>
                     </div>
                 `).join('')}
+
+                ${fee > 0 ? `
+                    <div class="row">
+                        <span>Taxa de Entrega / Desp.</span>
+                        <span>R$ ${fee.toFixed(2)}</span>
+                    </div>
+                ` : ''}
                 
                 <div class="divider"></div>
                 <div class="row bold">
