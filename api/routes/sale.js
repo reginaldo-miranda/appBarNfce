@@ -115,7 +115,7 @@ router.post('/create', async (req, res) => {
       include: {
         funcionario: { select: { nome: true } },
         entregador: { select: { nome: true } },
-        cliente: { select: { nome: true } },
+        cliente: { select: { id: true, nome: true, cpf: true, endereco: true, cidade: true, estado: true } },
         mesa: { include: { funcionarioResponsavel: { select: { nome: true } } } },
         itens: { include: { product: { select: { nome: true, precoVenda: true } } } },
       },
@@ -223,7 +223,13 @@ const mapSaleResponse = (venda) => {
     base.entregador = { _id: String(venda.entregador.id), id: venda.entregador.id, nome: venda.entregador.nome };
   }
   if (venda.cliente) {
-    base.cliente = { _id: String(venda.cliente.id), id: venda.cliente.id, nome: venda.cliente.nome };
+    base.cliente = { 
+        _id: String(venda.cliente.id), 
+        id: venda.cliente.id, 
+        nome: venda.cliente.nome,
+        cpf: venda.cliente.cpf,
+        endereco: venda.cliente.endereco
+    };
   }
   if (venda.caixaVendas) {
     base.caixaVendas = venda.caixaVendas.map(cv => ({
@@ -287,7 +293,7 @@ router.put('/:id/update', async (req, res) => {
       include: {
         funcionario: { select: { nome: true } },
         entregador: { select: { nome: true } },
-        cliente: { select: { nome: true } },
+        cliente: { select: { id: true, nome: true, cpf: true, endereco: true, cidade: true, estado: true } },
         mesa: { include: { funcionarioResponsavel: { select: { nome: true } } } },
         itens: { include: { product: { select: { nome: true, precoVenda: true } } } },
       }
@@ -451,7 +457,7 @@ router.get('/mesa/:mesaId', async (req, res) => {
       include: {
         funcionario: { select: { nome: true } },
         entregador: { select: { nome: true } },
-        cliente: { select: { nome: true } },
+        cliente: { select: { id: true, nome: true, cpf: true, endereco: true, cidade: true, estado: true } },
         mesa: { select: { numero: true, nome: true } },
         itens: { include: { product: { select: { nome: true, precoVenda: true } } } },
         caixaVendas: true,
@@ -480,7 +486,7 @@ router.get('/:id', async (req, res) => {
       include: {
         funcionario: { select: { nome: true } },
         entregador: { select: { nome: true } },
-        cliente: { select: { nome: true } },
+        cliente: { select: { id: true, nome: true, cpf: true, endereco: true, cidade: true, estado: true } },
         mesa: { select: { numero: true, nome: true } },
         itens: { include: { product: { select: { nome: true, precoVenda: true } } } },
         caixaVendas: true,
@@ -771,7 +777,7 @@ router.delete('/:id/item/:produtoId', async (req, res) => {
       where: { id },
       include: {
         funcionario: { select: { nome: true } },
-        cliente: { select: { nome: true } },
+        cliente: { select: { id: true, nome: true, cpf: true, endereco: true, cidade: true, estado: true } },
         itens: { include: { product: { select: { nome: true, precoVenda: true } } } },
       },
     });
@@ -883,7 +889,7 @@ router.delete('/:id/item/:produtoId', async (req, res) => {
       where: { id },
       include: {
         funcionario: { select: { nome: true } },
-        cliente: { select: { nome: true } },
+        cliente: { select: { id: true, nome: true, cpf: true, endereco: true, cidade: true, estado: true } },
         itens: { include: { product: { select: { nome: true, precoVenda: true } } } },
       },
     });
@@ -945,7 +951,7 @@ router.put('/:id/discount', async (req, res) => {
       where: { id },
       include: {
         funcionario: { select: { nome: true } },
-        cliente: { select: { nome: true } },
+        cliente: { select: { id: true, nome: true, cpf: true, endereco: true, cidade: true, estado: true } },
         itens: { include: { product: { select: { nome: true, precoVenda: true } } } },
       },
     });
@@ -1054,7 +1060,7 @@ router.put('/:id/finalize', async (req, res) => {
       },
       include: {
         funcionario: { select: { nome: true } },
-        cliente: { select: { nome: true } },
+        cliente: { select: { id: true, nome: true, cpf: true, endereco: true, cidade: true, estado: true } },
         mesa: { include: { funcionarioResponsavel: { select: { nome: true } } } },
         itens: { include: { product: { select: { nome: true, precoVenda: true } } } },
       },

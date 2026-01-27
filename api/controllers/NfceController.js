@@ -23,7 +23,8 @@ export const emitirNfce = async (req, res) => {
              where: { id: parseInt(saleId) },
              include: {
                  itens: { include: { product: true } },
-                 nfce: true
+                 nfce: true,
+                 cliente: true
              }
         });
 

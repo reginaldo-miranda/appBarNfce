@@ -161,8 +161,8 @@ class NfceService {
         .ele('cDV').txt(accessKey.substring(43, 44)).up()
         .ele('tpAmb').txt(ambiente).up()
         .ele('finNFe').txt('1').up()
-        .ele('indFinal').txt('1').up()
-        .ele('indPres').txt('1').up()
+        .ele('indFinal').txt('1').up() // 1=Consumidor Final (Obrigatório em NFC-e)
+        .ele('indPres').txt('1').up()  // 1=Presencial (Padrão NFC-e)
         // .ele('indIntermed').txt('0').up() // REMOVIDO: Obrigatório apenas se indPres != 1 (presencial). Se for 1, não deve existir ou deve ser omitido conforme UF. Na dúvida, melhor omitir pois alguns validadores rejeitam se existir com indPres=1
         .ele('procEmi').txt('0').up()
         .ele('verProc').txt('1.0.0').up()
@@ -190,6 +190,41 @@ class NfceService {
         emit.ele('IE').txt(cleanIe).up();
     }
     emit.ele('CRT').txt('1').up(); // 1 = Simples Nacional (Mandatory)
+
+    // 2.5 Destinatário (Opcional - mas se cliente existir na venda e tiver CPF, deve ir)
+    if (sale.cliente && sale.cliente.cpf) {
+        const cpfRaw = (sale.cliente.cpf || '').replace(/\D/g, '');
+        // Apenas adiciona grupo dest se tiver CPF ou CNPJ válido
+        if (cpfRaw.length === 11 || cpfRaw.length === 14) {
+            const dest = root.ele('dest');
+            if (cpfRaw.length === 11) {
+                dest.ele('CPF').txt(cpfRaw).up();
+            } else {
+                dest.ele('CNPJ').txt(cpfRaw).up();
+            }
+
+            // xNome
+            const nomeDest = this.sanitizeString(sale.cliente.nome).substring(0, 60);
+            
+            // Regra de Homologação: Se identificar destinatário, o nome DEVE ser padrão
+            if (ambiente === '2') {
+                dest.ele('xNome').txt('NF-E EMITIDA EM AMBIENTE DE HOMOLOGACAO - SEM VALOR FISCAL').up();
+            } else if (nomeDest && nomeDest.length > 1) {
+                dest.ele('xNome').txt(nomeDest).up();
+            } else {
+                 dest.ele('xNome').txt('CONSUMIDOR').up(); 
+            }
+
+            // Indicador da IE do Destinatário (9 = Não Contribuinte) - OBRIGATÓRIO
+            dest.ele('indIEDest').txt('9').up();
+
+            // Endereço (Opcional em NFC-e).
+            // Se tiver dados completos, poderiamos enviar, mas exige cMun (IBGE) valido.
+            // Para "CPF na Nota", apenas CPF e Nome (opcional) bastam.
+            // Vamos dar 'up' no dest.
+            dest.up(); 
+        }
+    }
 
 
 

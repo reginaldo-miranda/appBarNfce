@@ -433,6 +433,7 @@ export const employeeService = {
 
 export const customerService = {
   getAll: () => api.get('/customer/list'),
+  getByCpf: (cpf) => api.get(`/customer/by-cpf/${cpf}`),
   getById: (id) => api.get(`/customer/${id}`),
   create: (data) => api.post('/customer/create', data),
   update: (id, data) => api.put(`/customer/update/${id}`, data),

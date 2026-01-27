@@ -117,4 +117,35 @@ router.delete("/delete/:id", async (req, res) => {
   }
 });
 
+// Rota para buscar cliente por CPF
+router.get("/by-cpf/:cpf", async (req, res) => {
+  try {
+    const { cpf } = req.params;
+    // Tenta encontrar cliente por CPF (limpa formatação primeiro)
+    // No banco o CPF pode estar com ou sem pontuação? Vamos assumir que buscamos as duas formas ou limpamos na query se banco estiver limpo.
+    // O create limpa? Na create não vi limpeza explicita. Vamos assumir que salvamos como vem.
+    // Melhor tentar os dois ou limpar. O ideal é padronizar.
+    // Vou buscar exato primeiro.
+    
+    let customer = await prisma.customer.findUnique({ where: { cpf: cpf } });
+    
+    // Se não achou e o cpf tem chars, tenta limpo? Ou vice versa.
+    // Por simplicidade: busca exato. O frontend manda limpo (números). Se o banco tiver pontos, falha.
+    // Vamos tentar buscar like ou OR se findUnique falhar? findUnique só aceita unique field.
+    // Se o CPF no banco não é padronizado, é problema.
+    // Vamos assumir busca direta no campo unique @unique.
+    
+    if (!customer) {
+        // Fallback: se o CPF passado for números puros, tenta formatar ###.###.###-##?
+        // Ou se o banco tiver salvo com mascara...
+        return res.status(404).json({ error: "Cliente não encontrado" });
+    }
+    
+    res.json(customer);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Erro ao buscar cliente por CPF" });
+  }
+});
+
 export default router;

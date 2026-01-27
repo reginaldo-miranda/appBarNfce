@@ -20,6 +20,8 @@ import { Sale, CartItem, PaymentMethod } from '../types/index';
 import { caixaService, saleService } from '../services/api';
 import { events } from '../utils/eventBus';
 import PixModal from './PixModal';
+import CpfModal from './CpfModal';
+import { customerService } from '../services/api';
 
 interface PaymentSplitModalProps {
   visible: boolean;
@@ -53,6 +55,8 @@ export default function PaymentSplitModal({
   const [emitirNfce, setEmitirNfce] = useState(true);
   const [pixModalVisible, setPixModalVisible] = useState(false);
   const [pixAmount, setPixAmount] = useState(0);
+  const [cpfModalVisible, setCpfModalVisible] = useState(false);
+  const [pendingConfirmAction, setPendingConfirmAction] = useState<(() => void) | null>(null);
 
 
   // Efeito para fechar o modal se a venda for finalizada remotamente
@@ -332,11 +336,14 @@ export default function PaymentSplitModal({
 
   // Função central desvinculada do botão para permitir reuso (ex: pós-PIX)
   const submitPayment = async () => {
+    if (!sale) {
+        Alert.alert('Erro', 'Venda não identificada.');
+        return;
+    }
     try {
       setLoading(true);
 
-      const saleId = (sale as any).id || sale._id; // Fallback seguro
-      if (!saleId) throw new Error("ID da venda não encontrado");
+      const saleId = (sale as any).id || (sale as any)._id; // Fallback seguro
 
       // 2. Registrar metadados de pagamento na Venda
       const itemsPayload = Array.from(selectedItems.entries()).map(([id, amount]) => {
@@ -386,31 +393,151 @@ export default function PaymentSplitModal({
     }
   };
 
+  // Processar retorno do CpfModal
+  const handleCpfConfirm = async (customerData: any) => {
+      setCpfModalVisible(false);
+      setLoading(true);
+
+      try {
+          let clienteId = customerData.id;
+          const cpfRaw = customerData.cpf ? String(customerData.cpf).replace(/\D/g, '') : '';
+
+          // 1. Se não veio ID mas tem CPF, tenta buscar primeiro (Evita erro de duplicação se usuario clicou rapido)
+          if (!clienteId && cpfRaw.length >= 11) {
+              try {
+                  const searchRes = await customerService.getByCpf(cpfRaw);
+                  if (searchRes.data && searchRes.data.id) {
+                      clienteId = searchRes.data.id;
+                      // Atualizar dados se necessário?
+                      // Se achou, usamos o ID e atualizamos nome/endereço fornecidos
+                  }
+              } catch (e) {
+                  // Não achou, segue para create
+              }
+          }
+
+          // 2. Se ainda não tem ID, cria
+          if (!clienteId) {
+             try {
+                 const createRes = await customerService.create({
+                     nome: customerData.nome,
+                     endereco: customerData.endereco,
+                     cpf: customerData.cpf,
+                     ativo: true
+                 });
+                 clienteId = createRes.data?.customer?.id || createRes.data?.id;
+             } catch (createErr: any) {
+                 // 3. Se deu erro de CPF já existente (400), tentamos buscar novamente (Caso extremo)
+                 if (createErr.response?.data?.error === 'CPF já cadastrado' || String(createErr).includes('CPF')) {
+                     const retrySearch = await customerService.getByCpf(cpfRaw);
+                     if (retrySearch.data?.id) clienteId = retrySearch.data.id;
+                 } else {
+                     throw createErr;
+                 }
+             }
+          } else {
+             // 4. Se já tinha ID (ou achou no passo 1), atualiza dados
+             try {
+                await customerService.update(clienteId, {
+                    nome: customerData.nome,
+                    endereco: customerData.endereco,
+                    cpf: customerData.cpf
+                });
+             } catch (e) {
+                console.warn('Erro ao atualizar dados do cliente existente no modal:', e);
+             }
+          }
+
+          // 5. Vincula à venda
+          if (clienteId && sale) {
+              const saleId = (sale as any).id || (sale as any)._id;
+              await saleService.update(saleId, { clienteId });
+              console.log("Cliente vinculado com sucesso. ID:", clienteId);
+          } else {
+              if (Platform.OS === 'web') window.alert('Erro: Cliente não identificado para vínculo.');
+              else Alert.alert('Erro', 'Cliente não identificado.');
+          }
+
+      } catch (error) {
+          console.error("Erro ao vincular cliente:", error);
+          if (Platform.OS === 'web') window.alert('Erro ao vincular cliente. A venda seguirá como Consumidor Final.');
+          else Alert.alert('Aviso', 'Não foi possível vincular o cliente. Seguiremos sem CPF.');
+      } finally {
+          setLoading(false);
+          // Executa a ação pendente
+          if (pendingConfirmAction) {
+              pendingConfirmAction();
+              setPendingConfirmAction(null);
+          }
+      }
+  };
+
+  const handleCpfClose = async () => {
+      setCpfModalVisible(false);
+      // Se "Não usar", desvincular qualquer cliente que esteja na venda para ser Consumidor Final
+      if (sale && (sale as any).clienteId) {
+          try {
+              const saleId = (sale as any).id || (sale as any)._id;
+              // Passar null desvincula
+              await saleService.update(saleId, { clienteId: null });
+          } catch(e) {
+              console.error('Erro ao desvincular cliente:', e);
+          }
+      }
+
+      if (pendingConfirmAction) {
+          pendingConfirmAction();
+          setPendingConfirmAction(null);
+      }
+  };
+
+  const executeConfirmLogic = async () => {
+       // Se já está tudo pago, o botão serve para fechar/finalizar
+      const isEverythingPaid = totalRemainingGlobal <= 0.05;
+
+      if (totalSelected <= 0.01 && !isEverythingPaid) {
+        Alert.alert('Atenção', 'Selecione e informe valores para os itens que deseja pagar.');
+        return;
+      }
+
+      // Se tudo pago e nada selecionado, apenas confirma o sucesso para fechar
+      if (isEverythingPaid && totalSelected <= 0.01) {
+          onPaymentSuccess(true, emitirNfce);
+          return;
+      }
+
+      // Intercept PIX payment
+      if (paymentMethod === 'pix' && totalSelected > 0.05) {
+          setPixAmount(totalSelected);
+          setPixModalVisible(true);
+          return; 
+      }
+
+      await submitPayment();
+  };
+
   const handleConfirm = async () => {
     if (!sale) return;
     
-    // Se já está tudo pago, o botão serve para fechar/finalizar
+    // Verificar se esta ação vai FINALIZAR a venda (tudo pago)
+    // Cenário 1: Já está tudo pago (isEverythingPaid=true) -> Finaliza agora.
+    // Cenário 2: Vai pagar o restante agora (totalSelected >= totalRemainingGlobal) -> Finaliza agora.
+    
     const isEverythingPaid = totalRemainingGlobal <= 0.05;
+    const isPayingRest = (totalSelected >= totalRemainingGlobal - 0.05);
+    
+    const willFinalize = isEverythingPaid || isPayingRest;
 
-    if (totalSelected <= 0.01 && !isEverythingPaid) {
-      Alert.alert('Atenção', 'Selecione e informe valores para os itens que deseja pagar.');
-      return;
-    }
-
-    // Se tudo pago e nada selecionado, apenas confirma o sucesso para fechar
-    if (isEverythingPaid && totalSelected <= 0.01) {
-        onPaymentSuccess(true, emitirNfce);
+    // Se vai finalizar E quer NFC-e, abre modal de CPF
+    if (willFinalize && emitirNfce) {
+        // Armazena a ação real para executar apos o modal
+        setPendingConfirmAction(() => executeConfirmLogic);
+        setCpfModalVisible(true);
         return;
     }
 
-    // Intercept PIX payment
-    if (paymentMethod === 'pix' && totalSelected > 0.05) {
-        setPixAmount(totalSelected);
-        setPixModalVisible(true);
-        return; 
-    }
-
-    await submitPayment();
+    // Se não for finalizar ou não quiser NFC-e, segue direto
+    executeConfirmLogic();
   };
 
   return (
@@ -631,6 +758,18 @@ export default function PaymentSplitModal({
               // O pagamento já foi feito "visualmente" no modal (QR Code), agora registramos no sistema.
               submitPayment();
           }}
+      />
+      
+      <CpfModal
+          visible={cpfModalVisible}
+          onClose={handleCpfClose}
+          onConfirm={handleCpfConfirm}
+          initialData={sale && sale.cliente ? {
+              id: (sale.cliente as any).id || (sale.cliente as any)._id,
+              nome: sale.cliente.nome || '',
+              cpf: (sale.cliente as any).cpf || '',
+              endereco: (sale.cliente as any).endereco || ''
+          } : undefined}
       />
     </Modal>
   );
