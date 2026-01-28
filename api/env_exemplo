@@ -12,3 +12,5 @@ DATABASE_URL_LOCAL="mysql://root:saguides%40123@localhost:3306/appBar"
 DATABASE_URL_RAILWAY="mysql://root:EcNHsXSBfTPvATYnaVMSGHKIOjDMZnZx@shuttle.proxy.rlwy.net:17474/railway"
 
 DATABASE_URL_RAILWAY="mysql://root:EcNHsXSBfTPvATYnaVMSGHKIOjDMZnZx@shuttle.proxy.rlwy.net:17474/railway"
+
+chave api google AIzaSyASIOxutlTLjG13n_p_MJw5rh1UiWm2mgE

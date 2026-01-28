@@ -44,7 +44,14 @@ router.get("/list", async (req, res) => {
     const { nome } = req.query;
     const where = {};
     if (nome) {
-      where.nome = { contains: String(nome) }; // Removed mode: 'insensitive' for MySQL compatibility if needed, or check if supported. Prisma default for MySQL is case insensitive usually depending on collation.
+      where.nome = { contains: String(nome) };
+      // Tenta modo insensitive se o Prisma/DB suportar (MySQL geralmente suporta via collation, mas isso força no Prisma client se possível)
+      // Se der erro de "mode insensitive not supported", remover. Mas para PostgreSQL/MongoDB é padrão.
+      // Para testes locais vamos tentar sem o mode se o banco for MySQL padrão CI.
+      // MAS O USUÁRIO RELATOU ERRO. Vamos forçar insensitive?
+      // O código anterior tinha um comentário dizendo que removeu.
+      // Vamos tentar recolocar.
+      where.nome = { contains: String(nome), mode: 'insensitive' };
     }
     const customers = await prisma.customer.findMany({
       where,
