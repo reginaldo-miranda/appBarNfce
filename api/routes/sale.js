@@ -580,7 +580,8 @@ router.get('/:id', async (req, res) => {
         where: { id: itemExistente.id },
         data: {
           quantidade: novaQtd,
-          subtotal: String((Number(novaQtd) * Number(itemExistente.precoUnitario ?? produto.precoVenda)).toFixed(2))
+          subtotal: String((Number(novaQtd) * Number(itemExistente.precoUnitario ?? produto.precoVenda)).toFixed(2)),
+          createdAt: new Date() // Atualiza data para resetar tempo de ociosidade
         }
       });
     } else {
@@ -880,7 +881,7 @@ router.delete('/:id/item/:produtoId', async (req, res) => {
         // Item ainda está pendente, podemos apenas somar
         await prisma.saleItem.update({
           where: { id: item.id },
-          data: { quantidade: qnt, subtotal: qnt * item.precoUnitario, status: 'pendente' },
+          data: { quantidade: qnt, subtotal: qnt * item.precoUnitario, status: 'pendente', createdAt: new Date() }, // Atualiza createdAt para resetar tempo
         });
       }
     }
@@ -895,12 +896,24 @@ router.delete('/:id/item/:produtoId', async (req, res) => {
     });
     try {
       const setores = await prisma.$queryRawUnsafe(`SELECT s.id AS id, s.nome AS nome, s.modoEnvio AS modo, s.whatsappDestino AS whatsappDestino, s.printerId AS printerId FROM \`SetorImpressao\` s INNER JOIN \`ProductSetorImpressao\` psi ON psi.setorId = s.id WHERE psi.productId = ${prodId} AND s.ativo = 1`);
+      
+      let cozinha = false;
+      let bar = false;
+
       const saleRef = { mesa: vendaAtualizada?.mesa || null, comanda: vendaAtualizada?.nomeComanda || null };
+      
+      // Re-fetch item to be sure we have the latest data
       const it = Array.isArray(vendaAtualizada?.itens) ? vendaAtualizada.itens.find((i) => Number(i.productId) === prodId) : null;
       const deltaNow = qnt - prevQty;
+      
       if (deltaNow > 0) {
         for (const s of Array.isArray(setores) ? setores : []) {
+          const nome = String(s.nome || '').toLowerCase();
           const modo = String(s.modo || '').toLowerCase();
+          
+          if (nome === 'comandas' || nome === 'mesas' || nome === 'cozinha') cozinha = true;
+          if (nome === 'balcão' || nome === 'balcao' || nome === 'bar') bar = true;
+
           if (modo === 'impressora' && s.printerId) {
             const content = buildPrintContent({ setorNome: s.nome, saleRef, productNome: it?.product?.nome || '', quantidade: deltaNow, observacao: it?.observacao || '' });
             enqueuePrintJob({ saleId: id, productId: prodId, setorId: Number(s.id), printerId: Number(s.printerId), content }).catch(() => {});
@@ -910,8 +923,33 @@ router.delete('/:id/item/:produtoId', async (req, res) => {
             queueWhatsAppMessage({ saleId: id, to: String(s.whatsappDestino), text }).catch(() => {});
           }
         }
+        
+        // FORÇA A ATUALIZAÇÃO DA VENDA SE HOUVER SETORES (COZINHA OU BAR)
+        // Isso garante que o campo updatedAt da Sale seja modificado, 
+        // o que o frontend usa para resetar o contador de ociosidade "tempo de consumo".
+        if (cozinha || bar) {
+           await prisma.sale.update({ 
+             where: { id }, 
+             data: { 
+               impressaoCozinha: cozinha ? true : undefined, 
+               impressaoBar: bar ? true : undefined 
+             } 
+           });
+           
+           // Opcional: Se quiser garantir 100% que o updatedAt muda mesmo se os flags já fossem true,
+           // poderia forçar um campo auxiliar ou confiar que o prisma update roda o @updatedAt se houver match.
+           // Mas geralmente re-setar true já é suficiente se o prisma detectar 'write'.
+           // Se não detectar mudança, o updatedAt pode não rodar.
+           // Para garantir, podemos forçar updatedAt: new Date()
+           await prisma.sale.update({
+             where: { id },
+             data: { updatedAt: new Date() }
+           });
+        }
       }
-    } catch {}
+    } catch (e) {
+      console.error('Erro ao processar impressão/update na alteração de item:', e);
+    }
 
     res.json(mapSaleResponse(normalizeSale(vendaAtualizada)));
     try { recordSaleUpdate(vendaAtualizada.id); } catch {}

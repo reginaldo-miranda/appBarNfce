@@ -1,11 +1,12 @@
 import express from "express";
-import prisma from "../lib/prisma.js";
+import { getActivePrisma } from "../lib/prisma.js";
 
 const router = express.Router();
 
 // Rota para criar cliente
 router.post("/create", async (req, res) => {
   try {
+    const prisma = getActivePrisma();
     const { nome, endereco, cidade, estado, fone, cep, cpf, rg, dataNascimento, ativo } = req.body;
 
     // Verificar se CPF já existe (se informado)
@@ -41,17 +42,12 @@ router.post("/create", async (req, res) => {
 // Rota para listar todos os clientes
 router.get("/list", async (req, res) => {
   try {
+    const prisma = getActivePrisma();
     const { nome } = req.query;
     const where = {};
     if (nome) {
+      // Busca simples (MySQL geralmente é case-insensitive por collation padrão)
       where.nome = { contains: String(nome) };
-      // Tenta modo insensitive se o Prisma/DB suportar (MySQL geralmente suporta via collation, mas isso força no Prisma client se possível)
-      // Se der erro de "mode insensitive not supported", remover. Mas para PostgreSQL/MongoDB é padrão.
-      // Para testes locais vamos tentar sem o mode se o banco for MySQL padrão CI.
-      // MAS O USUÁRIO RELATOU ERRO. Vamos forçar insensitive?
-      // O código anterior tinha um comentário dizendo que removeu.
-      // Vamos tentar recolocar.
-      where.nome = { contains: String(nome), mode: 'insensitive' };
     }
     const customers = await prisma.customer.findMany({
       where,
@@ -68,6 +64,7 @@ router.get("/list", async (req, res) => {
 // Rota para buscar cliente por ID
 router.get("/:id", async (req, res) => {
   try {
+    const prisma = getActivePrisma();
     const id = Number(req.params.id);
     const customer = await prisma.customer.findUnique({ where: { id } });
     if (!customer) {
@@ -83,6 +80,7 @@ router.get("/:id", async (req, res) => {
 // Rota para atualizar cliente
 router.put("/update/:id", async (req, res) => {
   try {
+    const prisma = getActivePrisma();
     const id = Number(req.params.id);
     const { nome, endereco, cidade, estado, fone, cep, cpf, rg, dataNascimento, ativo } = req.body;
 
@@ -112,6 +110,7 @@ router.put("/update/:id", async (req, res) => {
 // Rota para deletar cliente
 router.delete("/delete/:id", async (req, res) => {
   try {
+    const prisma = getActivePrisma();
     const id = Number(req.params.id);
     await prisma.customer.delete({ where: { id } });
     res.json({ message: "Cliente deletado com sucesso" });
@@ -127,6 +126,7 @@ router.delete("/delete/:id", async (req, res) => {
 // Rota para buscar cliente por CPF
 router.get("/by-cpf/:cpf", async (req, res) => {
   try {
+    const prisma = getActivePrisma();
     const { cpf } = req.params;
     // Tenta encontrar cliente por CPF (limpa formatação primeiro)
     // No banco o CPF pode estar com ou sem pontuação? Vamos assumir que buscamos as duas formas ou limpamos na query se banco estiver limpo.

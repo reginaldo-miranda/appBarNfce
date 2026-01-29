@@ -21,7 +21,7 @@ router.get('/list', async (req, res) => {
     const mesas = await prisma.mesa.findMany({
       where: { ativo: true },
       include: {
-        vendaAtual: true,
+        vendaAtual: { include: { cliente: { select: { id: true, nome: true, cpf: true, endereco: true, cidade: true, estado: true } } } },
         funcionarioResponsavel: { select: { id: true, nome: true } },
       },
       orderBy: { numero: 'asc' },
@@ -44,7 +44,7 @@ router.get('/:id', async (req, res) => {
     const mesa = await prisma.mesa.findUnique({
       where: { id },
       include: {
-        vendaAtual: true,
+        vendaAtual: { include: { cliente: { select: { id: true, nome: true, cpf: true, endereco: true, cidade: true, estado: true } } } },
         funcionarioResponsavel: { select: { id: true, nome: true } },
       },
     });
@@ -88,7 +88,7 @@ router.post('/create', async (req, res) => {
         tipo: tipo || 'interna',
       },
       include: {
-        vendaAtual: true,
+        vendaAtual: { include: { cliente: { select: { id: true, nome: true, cpf: true, endereco: true, cidade: true, estado: true } } } },
         funcionarioResponsavel: { select: { id: true, nome: true } },
       },
     });
@@ -107,7 +107,7 @@ router.post('/:id/abrir', async (req, res) => {
       return res.status(400).json({ message: 'ID inválido' });
     }
 
-    const { funcionarioId, nomeResponsavel, observacoes, numeroClientes = 1 } = req.body;
+    const { funcionarioId, nomeResponsavel, observacoes, numeroClientes = 1, clienteId } = req.body;
 
     const mesa = await prisma.mesa.findUnique({ where: { id } });
     if (!mesa) {
@@ -138,20 +138,42 @@ router.post('/:id/abrir', async (req, res) => {
       return res.status(400).json({ message: 'Número de clientes inválido' });
     }
 
-    const mesaAtualizada = await prisma.mesa.update({
-      where: { id },
-      data: {
-        status: 'ocupada',
-        clientesAtuais: clientes,
-        horaAbertura: new Date(),
-        observacoes: observacoes || '',
-        funcionarioResponsavelId: funcionarioIdInt,
-        nomeResponsavel: nomeResponsavel || '',
-      },
-      include: {
-        vendaAtual: true,
-        funcionarioResponsavel: { select: { id: true, nome: true } },
-      },
+    // Transação: Criar Venda e Atualizar Mesa
+    const mesaAtualizada = await prisma.$transaction(async (tx) => {
+        // 1. Criar Venda
+        const novaVenda = await tx.sale.create({
+            data: {
+                mesaId: id,
+                funcionarioId: funcionarioIdInt, // Quem está atendendo (responsável)
+                funcionarioAberturaId: funcionarioIdInt, // Quem abriu
+                responsavelFuncionarioId: funcionarioIdInt,
+                clienteId: clienteId ? Number(clienteId) : null,
+                responsavelNome: nomeResponsavel || '',
+                tipoVenda: 'mesa',
+                status: 'aberta',
+                subtotal: 0,
+                desconto: 0,
+                total: 0
+            }
+        });
+
+        // 2. Atualizar Mesa
+        return await tx.mesa.update({
+            where: { id },
+            data: {
+                status: 'ocupada',
+                vendaAtualId: novaVenda.id,
+                clientesAtuais: clientes,
+                horaAbertura: new Date(),
+                observacoes: observacoes || '',
+                funcionarioResponsavelId: funcionarioIdInt,
+                nomeResponsavel: nomeResponsavel || '',
+            },
+            include: {
+                vendaAtual: { include: { cliente: { select: { id: true, nome: true, cpf: true, endereco: true, cidade: true, estado: true } } } },
+                funcionarioResponsavel: { select: { id: true, nome: true } },
+            },
+        });
     });
 
     res.json({ message: 'Mesa aberta com sucesso', mesa: mapMesaResponse(mesaAtualizada) });
@@ -195,7 +217,7 @@ router.post('/:id/fechar', async (req, res) => {
         observacoes: '',
       },
       include: {
-        vendaAtual: true,
+        vendaAtual: { include: { cliente: { select: { id: true, nome: true, cpf: true, endereco: true, cidade: true, estado: true } } } },
         funcionarioResponsavel: { select: { id: true, nome: true } },
       },
     });
@@ -270,7 +292,7 @@ router.put('/:id', async (req, res) => {
       where: { id },
       data,
       include: {
-        vendaAtual: true,
+        vendaAtual: { include: { cliente: { select: { id: true, nome: true, cpf: true, endereco: true, cidade: true, estado: true } } } },
         funcionarioResponsavel: { select: { id: true, nome: true } },
       },
     });
@@ -334,7 +356,18 @@ router.post('/merge', async (req, res) => {
 
         if (!sourceSale) continue;
 
-      // 3. Mover Itens para a Venda Principal e cancelar venda de origem
+        // 3. Mover Itens para a Venda Principal e cancelar venda de origem
+        
+        // Se a venda principal não tiver cliente e a de origem tiver, herdamos o cliente
+        if (!targetSale.clienteId && sourceSale.clienteId) {
+            await tx.sale.update({ 
+               where: { id: targetSale.id },
+               data: { clienteId: sourceSale.clienteId }
+            });
+            // Atualiza objeto em memória para próximas iterações
+            targetSale.clienteId = sourceSale.clienteId; 
+        }
+
         await tx.saleItem.updateMany({
           where: { saleId: sourceSale.id },
           data: { saleId: targetSale.id }

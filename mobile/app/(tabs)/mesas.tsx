@@ -942,7 +942,8 @@ useEffect(() => {
         mesaSelecionada._id,
         formAbrirMesa.funcionarioResponsavel,
         formAbrirMesa.nomeResponsavel.trim(),
-        formAbrirMesa.observacoes.trim()
+        formAbrirMesa.observacoes.trim(),
+        selectedCliente ? (selectedCliente.id || selectedCliente._id) : undefined
       );
       
       setAbrirMesaModalVisible(false);

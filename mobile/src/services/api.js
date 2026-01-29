@@ -595,8 +595,8 @@ export const mesaService = {
   create: (data) => api.post('/mesa/create', data),
   update: (id, data) => api.put(`/mesa/${id}`, data),
   delete: (id) => api.delete(`/mesa/${id}`),
-  abrir: (id, funcionarioId, nomeResponsavel, observacoes) => 
-    api.post(`/mesa/${id}/abrir`, { funcionarioId, nomeResponsavel, observacoes }),
+  abrir: (id, funcionarioId, nomeResponsavel, observacoes, clienteId) => 
+    api.post(`/mesa/${id}/abrir`, { funcionarioId, nomeResponsavel, observacoes, clienteId }),
   fechar: (id) => api.post(`/mesa/${id}/fechar`),
   merge: (targetMesaId, sourceMesaIds) => api.post('/mesa/merge', { targetMesaId, sourceMesaIds }),
 };
